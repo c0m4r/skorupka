@@ -57,11 +57,13 @@ pub fn install() -> Result<()> {
     let cfg_file = cfg_dir.join("config.toml");
 
     if !cfg_dir.exists() {
-        fs::create_dir_all(cfg_dir)
-            .with_context(|| format!("mkdir {}", cfg_dir.display()))?;
+        fs::create_dir_all(cfg_dir).with_context(|| format!("mkdir {}", cfg_dir.display()))?;
     }
     if cfg_file.exists() {
-        println!("note: {} already exists, leaving it alone", cfg_file.display());
+        println!(
+            "note: {} already exists, leaving it alone",
+            cfg_file.display()
+        );
     } else {
         fs::write(&cfg_file, DEFAULT_CONFIG)
             .with_context(|| format!("write {}", cfg_file.display()))?;
@@ -79,7 +81,10 @@ pub fn install() -> Result<()> {
     let sshd_file = sshd_dir.join("90-skorupka.conf");
     if sshd_dir.is_dir() {
         if sshd_file.exists() {
-            println!("note: {} already exists, leaving it alone", sshd_file.display());
+            println!(
+                "note: {} already exists, leaving it alone",
+                sshd_file.display()
+            );
         } else {
             fs::write(&sshd_file, SSHD_SNIPPET)
                 .with_context(|| format!("write {}", sshd_file.display()))?;
@@ -88,7 +93,10 @@ pub fn install() -> Result<()> {
         }
     } else {
         println!();
-        println!("note: {} does not exist on this system.", sshd_dir.display());
+        println!(
+            "note: {} does not exist on this system.",
+            sshd_dir.display()
+        );
         println!("Add the following block to /etc/ssh/sshd_config manually:");
         println!();
         println!("{}", SSHD_SNIPPET);
@@ -107,7 +115,11 @@ pub fn install() -> Result<()> {
 }
 
 pub fn adduser(name: &str, paths: &[String]) -> Result<()> {
-    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         bail!("invalid username: {:?}", name);
     }
     if paths.is_empty() {
@@ -125,7 +137,10 @@ pub fn adduser(name: &str, paths: &[String]) -> Result<()> {
 
     println!("Manual steps (run as root):");
     println!("  groupadd -f skorupka");
-    println!("  useradd -m -s /usr/local/bin/skorupka -g skorupka {}", name);
+    println!(
+        "  useradd -m -s /usr/local/bin/skorupka -g skorupka {}",
+        name
+    );
     println!();
     println!("Then append this block to /etc/skorupka/config.toml:");
     println!();

@@ -133,7 +133,10 @@ pub struct UserPolicy {
 fn reject_dangerous_root(user: &str, p: &std::path::Path) -> Result<()> {
     let s = p.to_string_lossy();
     if s == "/" {
-        bail!("user {}: allowed_paths_ro entry '/' is forbidden (would nullify landlock)", user);
+        bail!(
+            "user {}: allowed_paths_ro entry '/' is forbidden (would nullify landlock)",
+            user
+        );
     }
     for dr in &["/proc", "/sys", "/dev"] {
         if s == *dr || s.starts_with(&format!("{}/", dr)) {
@@ -176,7 +179,11 @@ impl Config {
             }
             for p in &u.allowed_paths_ro {
                 if !p.is_absolute() {
-                    bail!("user {}: allowed_paths_ro entry {:?} is not absolute", u.name, p);
+                    bail!(
+                        "user {}: allowed_paths_ro entry {:?} is not absolute",
+                        u.name,
+                        p
+                    );
                 }
                 reject_dangerous_root(&u.name, p)?;
                 // Require the path to exist AND be resolvable at config-
@@ -186,7 +193,9 @@ impl Config {
                 let canon = p.canonicalize().map_err(|e| {
                     anyhow!(
                         "user {}: allowed_paths_ro entry {:?} does not resolve: {}",
-                        u.name, p, e
+                        u.name,
+                        p,
+                        e
                     )
                 })?;
                 if canon != *p {

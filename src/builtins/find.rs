@@ -33,11 +33,15 @@ pub fn run(
     while let Some(a) = it.next() {
         match a.as_str() {
             "-name" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("find: -name needs value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("find: -name needs value"))?;
                 name_substr = Some(v.clone());
             }
             "-type" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("find: -type needs value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("find: -type needs value"))?;
                 let c = v.chars().next().unwrap_or('?');
                 if !matches!(c, 'f' | 'd' | 'l') {
                     bail!("find: -type must be f, d, or l");
@@ -45,7 +49,9 @@ pub fn run(
                 type_filter = Some(c);
             }
             "-maxdepth" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("find: -maxdepth needs value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("find: -maxdepth needs value"))?;
                 max_depth = Some(v.parse()?);
             }
             "-exec" | "-execdir" | "-delete" | "-ok" => {

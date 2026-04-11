@@ -9,7 +9,10 @@ pub fn set_no_new_privs() -> Result<()> {
     // SAFETY: pure prctl call, no memory touched.
     let rc = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
     if rc != 0 {
-        bail!("prctl(PR_SET_NO_NEW_PRIVS) failed: {}", std::io::Error::last_os_error());
+        bail!(
+            "prctl(PR_SET_NO_NEW_PRIVS) failed: {}",
+            std::io::Error::last_os_error()
+        );
     }
     Ok(())
 }

@@ -61,7 +61,9 @@ pub fn parse(input: &str, max_line_len: usize, max_stages: usize) -> Result<Pipe
                 if cur.is_empty() {
                     bail!("empty pipeline stage before '|'");
                 }
-                stages.push(Stage { argv: std::mem::take(&mut cur) });
+                stages.push(Stage {
+                    argv: std::mem::take(&mut cur),
+                });
                 if stages.len() >= max_stages {
                     bail!("pipeline exceeds max_pipeline_stages ({})", max_stages);
                 }
@@ -74,8 +76,8 @@ pub fn parse(input: &str, max_line_len: usize, max_stages: usize) -> Result<Pipe
                 awaiting_stage = false;
                 i = next;
             }
-            b';' | b'&' | b'<' | b'>' | b'`' | b'$' | b'(' | b')' | b'{' | b'}' | b'['
-            | b']' | b'*' | b'?' | b'~' | b'!' | b'#' | b'\\' | b'\'' => {
+            b';' | b'&' | b'<' | b'>' | b'`' | b'$' | b'(' | b')' | b'{' | b'}' | b'[' | b']'
+            | b'*' | b'?' | b'~' | b'!' | b'#' | b'\\' | b'\'' => {
                 bail!("forbidden metacharacter: {:?}", c as char);
             }
             _ => {

@@ -9,7 +9,11 @@ pub fn run(
     stdout: &mut dyn Write,
     ctx: &mut Ctx,
 ) -> Result<()> {
-    let files: Vec<&String> = argv.iter().skip(1).filter(|s| !s.starts_with('-')).collect();
+    let files: Vec<&String> = argv
+        .iter()
+        .skip(1)
+        .filter(|s| !s.starts_with('-'))
+        .collect();
     if files.is_empty() {
         let (l, w, b) = count(BufReader::new(stdin))?;
         writeln!(stdout, " {} {} {}", l, w, b)?;
@@ -46,7 +50,10 @@ fn count<R: BufRead>(mut r: R) -> Result<(u64, u64, u64)> {
         if buf.ends_with(b"\n") {
             lines += 1;
         }
-        words += buf.split(|&b| b == b' ' || b == b'\t' || b == b'\n').filter(|s| !s.is_empty()).count() as u64;
+        words += buf
+            .split(|&b| b == b' ' || b == b'\t' || b == b'\n')
+            .filter(|s| !s.is_empty())
+            .count() as u64;
     }
     Ok((lines, words, bytes))
 }

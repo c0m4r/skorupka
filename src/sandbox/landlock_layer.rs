@@ -8,8 +8,8 @@
 
 use anyhow::{bail, Context, Result};
 use landlock::{
-    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
-    RulesetStatus, ABI,
+    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus,
+    ABI,
 };
 
 pub fn apply(allowed_ro: &[std::path::PathBuf]) -> Result<()> {
@@ -32,8 +32,7 @@ pub fn apply(allowed_ro: &[std::path::PathBuf]) -> Result<()> {
     // Add one PathBeneath rule per allowed path. `add_rule` consumes and
     // returns the ruleset, so we fold.
     let rs = allowed_ro.iter().try_fold(rs, |rs, p| -> Result<_> {
-        let fd = PathFd::new(p)
-            .with_context(|| format!("opening allowed path {}", p.display()))?;
+        let fd = PathFd::new(p).with_context(|| format!("opening allowed path {}", p.display()))?;
         let rs = rs
             .add_rule(PathBeneath::new(fd, read_only))
             .with_context(|| format!("add_rule for {}", p.display()))?;

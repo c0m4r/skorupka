@@ -15,8 +15,7 @@ pub fn run(
     }
     for f in argv.iter().skip(1) {
         let p = resolve(&ctx.cwd, f);
-        let md = std::fs::symlink_metadata(&p)
-            .with_context(|| format!("stat: {}", p.display()))?;
+        let md = std::fs::symlink_metadata(&p).with_context(|| format!("stat: {}", p.display()))?;
         writeln!(
             stdout,
             "{}: size={} mode={:o} uid={} gid={} mtime={}",

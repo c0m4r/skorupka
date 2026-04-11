@@ -9,8 +9,8 @@
 
 use anyhow::Result;
 use std::io::{Read, Write};
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
 pub mod cat;
 pub mod cd;
@@ -109,6 +109,6 @@ fn exit_stub(
 /// All known builtin names (for help output and tab completion lists).
 #[allow(dead_code)]
 pub const ALL: &[&str] = &[
-    "help", "exit", "pwd", "cd", "ls", "cat", "echo", "head", "tail", "wc", "grep", "find",
-    "date", "id", "whoami", "stat",
+    "help", "exit", "pwd", "cd", "ls", "cat", "echo", "head", "tail", "wc", "grep", "find", "date",
+    "id", "whoami", "stat",
 ];

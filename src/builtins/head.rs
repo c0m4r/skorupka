@@ -16,8 +16,7 @@ pub fn run(
     } else {
         for f in files {
             let p = resolve(&ctx.cwd, &f);
-            let fh = std::fs::File::open(&p)
-                .with_context(|| format!("head: {}", p.display()))?;
+            let fh = std::fs::File::open(&p).with_context(|| format!("head: {}", p.display()))?;
             head_reader(BufReader::new(fh), stdout, n, &ctx.output_budget)?;
         }
     }
@@ -31,7 +30,9 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "-n" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("head: -n needs value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("head: -n needs value"))?;
                 n = v.parse().context("head: -n value")?;
             }
             s if s.starts_with("-") => {

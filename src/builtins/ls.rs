@@ -30,8 +30,7 @@ pub fn run(
 
     for t in &targets {
         let p = resolve(&ctx.cwd, t);
-        let md = std::fs::metadata(&p)
-            .with_context(|| format!("ls: {}", p.display()))?;
+        let md = std::fs::metadata(&p).with_context(|| format!("ls: {}", p.display()))?;
         if md.is_dir() {
             list_dir(&p, long, all, stdout)?;
         } else {

@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  ci:
+    name: CI
+    # ubuntu-24.04 ships kernel 6.8, which gives us full Landlock ABI v3
+    # (LANDLOCK_ACCESS_FS_TRUNCATE + refer). selftest would still pass on
+    # 5.15 (ABI v1) but would log a "partially enforced" warning.
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo registry and build artefacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        # --locked pins to the exact versions in Cargo.lock so the install
+        # is reproducible across runs without polluting the build cache.
+        run: cargo install cargo-audit --locked
+
+      # ── lint ────────────────────────────────────────────────────────────
+      - name: Clippy
+        # RUSTFLAGS=-D warnings (set in env above) turns every clippy
+        # warning into a hard error so the job fails on new warnings.
+        run: cargo clippy --release --all-targets
+
+      # ── supply-chain ────────────────────────────────────────────────────
+      - name: Audit (cargo-audit)
+        # Fails on any known vulnerability (RUSTSEC advisories). Informational
+        # advisories (unmaintained crates, etc.) are reported but do not
+        # fail the job unless --deny unmaintained is added.
+        run: cargo audit
+
+      # ── correctness ─────────────────────────────────────────────────────
+      - name: Unit and integration tests
+        run: cargo test --release
+
+      # ── build ───────────────────────────────────────────────────────────
+      - name: Build release binary
+        # cargo test --release already compiled everything; this step is
+        # explicit so the job log clearly shows a successful binary link
+        # and so the binary is available as an artefact below.
+        run: cargo build --release
+
+      # ── runtime security self-check ─────────────────────────────────────
+      - name: Selftest (in-process escape-attempt suite)
+        # Seals the sandbox (landlock + seccomp + NO_NEW_PRIVS) inside the
+        # runner process, then asserts that 19 attack vectors all fail.
+        # No root or special privileges are required: landlock and
+        # seccomp-bpf are both unprivileged Linux kernel interfaces.
+        run: ./target/release/skorupka selftest
+
+      # ── artefact ────────────────────────────────────────────────────────
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: skorupka-linux-x86_64
+          path: target/release/skorupka
+          retention-days: 7
+          if-no-files-found: error

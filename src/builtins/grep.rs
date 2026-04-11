@@ -79,10 +79,12 @@ pub fn run(
         let many = files.len() > 1;
         for f in files {
             let p = resolve(&ctx.cwd, &f);
-            let fh = std::fs::File::open(&p)
-                .with_context(|| format!("grep: {}", p.display()))?;
+            let fh = std::fs::File::open(&p).with_context(|| format!("grep: {}", p.display()))?;
             let label = p.display().to_string();
-            process(Box::new(BufReader::new(fh)), if many { Some(&label) } else { None })?;
+            process(
+                Box::new(BufReader::new(fh)),
+                if many { Some(&label) } else { None },
+            )?;
         }
     }
 

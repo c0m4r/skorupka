@@ -9,8 +9,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashSet;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
 use crate::audit;
 use crate::builtins::{self, Ctx};
@@ -48,15 +48,22 @@ pub fn run(config_path: &str, user_override: Option<&str>) -> Result<()> {
 
     // Hop to the start directory (still allowed, cwd is permitted by
     // landlock because it lives under an allowed_paths_ro entry).
-    let start_dir = policy
-        .start_dir
-        .clone()
-        .unwrap_or_else(|| policy.allowed_paths_ro.first().cloned().unwrap_or_else(|| PathBuf::from("/")));
+    let start_dir = policy.start_dir.clone().unwrap_or_else(|| {
+        policy
+            .allowed_paths_ro
+            .first()
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from("/"))
+    });
     let _ = std::env::set_current_dir(&start_dir);
 
     let mut ctx = Ctx {
         cwd: std::env::current_dir().unwrap_or(start_dir),
-        enabled: policy.builtins_enabled.iter().cloned().collect::<HashSet<_>>(),
+        enabled: policy
+            .builtins_enabled
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>(),
         output_budget: Arc::new(AtomicU64::new(cfg.defaults.max_output_bytes)),
     };
 
@@ -116,10 +123,12 @@ pub fn run(config_path: &str, user_override: Option<&str>) -> Result<()> {
                 ctx.output_budget = Arc::new(AtomicU64::new(cfg.defaults.max_output_bytes));
 
                 // Handle `exit` as a REPL directive.
-                if pipeline.stages.len() == 1 && matches!(
-                    pipeline.stages[0].argv.first().map(String::as_str),
-                    Some("exit") | Some("quit")
-                ) {
+                if pipeline.stages.len() == 1
+                    && matches!(
+                        pipeline.stages[0].argv.first().map(String::as_str),
+                        Some("exit") | Some("quit")
+                    )
+                {
                     audit::event("session_end", "reason=exit");
                     return Ok(());
                 }
@@ -163,10 +172,7 @@ fn current_username() -> Result<String> {
 
 fn validate_stages(p: &Pipeline, enabled: &HashSet<String>) -> Result<()> {
     for (i, s) in p.stages.iter().enumerate() {
-        let name = s
-            .argv
-            .first()
-            .ok_or_else(|| anyhow!("empty stage"))?;
+        let name = s.argv.first().ok_or_else(|| anyhow!("empty stage"))?;
         if !enabled.contains(name) {
             bail!("command not allowed: {}", name);
         }

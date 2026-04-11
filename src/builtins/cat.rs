@@ -19,8 +19,7 @@ pub fn run(
     }
     for f in files {
         let p = resolve(&ctx.cwd, f);
-        let mut fh = std::fs::File::open(&p)
-            .with_context(|| format!("cat: {}", p.display()))?;
+        let mut fh = std::fs::File::open(&p).with_context(|| format!("cat: {}", p.display()))?;
         copy(&mut fh, stdout, &ctx.output_budget)?;
     }
     Ok(())

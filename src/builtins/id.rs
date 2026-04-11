@@ -13,7 +13,10 @@ pub fn run(
     // User::from_uid reads /etc/passwd, which landlock likely forbids.
     // On failure, omit the name rather than printing `uid(uid)` which
     // looks like a bug.
-    let user = nix::unistd::User::from_uid(uid).ok().flatten().map(|u| u.name);
+    let user = nix::unistd::User::from_uid(uid)
+        .ok()
+        .flatten()
+        .map(|u| u.name);
     if argv.first().map(|s| s.as_str()) == Some("whoami") {
         match user {
             Some(n) => writeln!(stdout, "{}", n)?,

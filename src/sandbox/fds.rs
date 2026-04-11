@@ -33,12 +33,8 @@ pub fn hygiene() -> Result<()> {
 
     // 1. Open /dev/null (RW so it can sink writes and provide EOF reads).
     // nix 0.29 returns an OwnedFd directly.
-    let devnull = open(
-        "/dev/null",
-        OFlag::O_RDWR | OFlag::O_CLOEXEC,
-        Mode::empty(),
-    )
-    .context("opening /dev/null")?;
+    let devnull = open("/dev/null", OFlag::O_RDWR | OFlag::O_CLOEXEC, Mode::empty())
+        .context("opening /dev/null")?;
 
     // 2. Make sure stdio is present. If sshd already wired ptys to 0/1/2
     // (normal interactive case), fstat will succeed and we leave them

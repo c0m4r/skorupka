@@ -77,10 +77,7 @@ fn current_user_nproc_estimate() -> u64 {
         let mut threads: u64 = 1;
         for line in text.lines() {
             if let Some(rest) = line.strip_prefix("Uid:") {
-                this_uid = rest
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse().ok());
+                this_uid = rest.split_whitespace().next().and_then(|s| s.parse().ok());
             } else if let Some(rest) = line.strip_prefix("Threads:") {
                 threads = rest.trim().parse().unwrap_or(1);
             }

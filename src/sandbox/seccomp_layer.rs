@@ -15,8 +15,8 @@
 
 use anyhow::{bail, Result};
 use seccompiler::{
-    BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition,
-    SeccompFilter, SeccompRule, TargetArch,
+    BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
+    SeccompRule, TargetArch,
 };
 use std::collections::BTreeMap;
 
@@ -157,7 +157,6 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_rt_sigprocmask,
         libc::SYS_rt_sigreturn,
         libc::SYS_sigaltstack,
-
         // --- thread creation (we need it for pipeline stages) ---
         // SYS_clone is installed separately above with a MaskedEq rule on
         // the flags argument that rejects every CLONE_NEW* namespace flag.
@@ -195,7 +194,6 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_sched_getaffinity,
         libc::SYS_membarrier,
         libc::SYS_rseq,
-
         // --- memory ---
         libc::SYS_brk,
         libc::SYS_mmap,
@@ -203,7 +201,6 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_mremap,
         libc::SYS_mprotect,
         libc::SYS_madvise,
-
         // --- I/O ---
         libc::SYS_read,
         libc::SYS_write,
@@ -225,7 +222,6 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_epoll_ctl,
         libc::SYS_epoll_pwait,
         libc::SYS_eventfd2,
-
         // --- filesystem (landlock enforces paths) ---
         libc::SYS_openat,
         libc::SYS_newfstatat,
@@ -238,7 +234,6 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_readlinkat,
         libc::SYS_faccessat,
         libc::SYS_faccessat2,
-
         // --- process info ---
         libc::SYS_getpid,
         libc::SYS_gettid,
@@ -254,14 +249,12 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_getrlimit,
         libc::SYS_getrandom,
         libc::SYS_sysinfo,
-
         // --- time ---
         libc::SYS_clock_gettime,
         libc::SYS_clock_getres,
         libc::SYS_clock_nanosleep,
         libc::SYS_nanosleep,
         libc::SYS_gettimeofday,
-
         // --- misc runtime plumbing ---
         // prctl: glibc/rust probe PR_GET_DUMPABLE etc. We already set
         //   PR_SET_NO_NEW_PRIVS before seccomp seals, so allowing prctl

@@ -55,13 +55,7 @@ pub fn drop_all() -> Result<()> {
     };
     let data = [CapUserData::default(); 2];
     // SAFETY: capset is a normal syscall; we pass correctly-sized structs.
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_capset,
-            &hdr as *const _,
-            data.as_ptr(),
-        )
-    };
+    let rc = unsafe { libc::syscall(libc::SYS_capset, &hdr as *const _, data.as_ptr()) };
     if rc != 0 {
         // Not fatal — an unprivileged user may already have empty sets
         // and the syscall may still EPERM on some kernels.
