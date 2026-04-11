@@ -1,0 +1,37 @@
+[package]
+name = "skorupka"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Hardened SSH sandbox shell (landlock + seccomp, read-only, no execve)"
+license = "MIT"
+
+[lib]
+name = "skorupka"
+path = "src/lib.rs"
+
+[[bin]]
+name = "skorupka"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+landlock = "0.4"
+libc = "0.2"
+nix = { version = "0.29", features = ["fs", "user", "resource", "process", "signal", "term", "ioctl"] }
+os_pipe = "1"
+regex = "1"
+rustyline = { version = "14", default-features = false, features = ["with-file-history"] }
+seccompiler = "0.4"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
+panic = "abort"

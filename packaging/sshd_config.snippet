@@ -1,0 +1,19 @@
+# --- BEGIN skorupka sandbox ---
+# Drop this into /etc/ssh/sshd_config.d/90-skorupka.conf (or append to
+# /etc/ssh/sshd_config) and `systemctl reload sshd`.
+#
+# Every user in the `skorupka` group will be forced through the sandbox
+# shell with all forwarding, tunnelling, and SFTP disabled.
+
+Match Group skorupka
+    ForceCommand /usr/local/bin/skorupka run
+    PermitTTY yes
+    X11Forwarding no
+    AllowTcpForwarding no
+    AllowStreamLocalForwarding no
+    AllowAgentForwarding no
+    PermitTunnel no
+    PermitUserRC no
+    GatewayPorts no
+    PermitUserEnvironment no
+# --- END skorupka sandbox ---
