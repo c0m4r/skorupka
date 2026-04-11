@@ -1,8 +1,8 @@
 [package]
 name = "skorupka"
 version = "0.1.1"
-edition = "2021"
-rust-version = "1.75"
+edition = "2024"
+rust-version = "1.85.0"
 description = "Hardened SSH sandbox shell (landlock + seccomp, read-only, no execve)"
 license = "MIT"
 
@@ -15,19 +15,19 @@ name = "skorupka"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-landlock = "0.4"
-libc = "0.2"
-nix = { version = "0.29", features = ["fs", "user", "resource", "process", "signal", "term", "ioctl"] }
-os_pipe = "1"
-regex = "1"
-rustyline = { version = "14", default-features = false, features = ["with-file-history"] }
-seccompiler = "0.4"
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "=1.0.102"
+clap = { version = "=4.6.0", features = ["derive"] }
+landlock = "=0.4.4"
+libc = "=0.2.184"
+nix = { version = "=0.31.2", features = ["fs", "user", "resource", "process", "signal", "term", "ioctl"] }
+os_pipe = "=1.2.3"
+regex = "=1.12.3"
+rustyline = { version = "=18.0.0", default-features = false, features = ["with-file-history"] }
+seccompiler = "=0.5.0"
+serde = { version = "=1.0.228", features = ["derive"] }
+toml = "=1.1.2"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 
 [profile.release]
 lto = true

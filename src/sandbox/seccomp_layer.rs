@@ -126,7 +126,7 @@ pub fn apply() -> Result<()> {
     let rc = unsafe {
         libc::syscall(
             libc::SYS_execve,
-            b"/nonexistent\0".as_ptr(),
+            c"/nonexistent".as_ptr(),
             std::ptr::null::<*const libc::c_char>(),
             std::ptr::null::<*const libc::c_char>(),
         )

@@ -62,7 +62,7 @@ pub fn run() -> Result<()> {
         let rc = unsafe {
             libc::syscall(
                 libc::SYS_execve,
-                b"/bin/sh\0".as_ptr(),
+                c"/bin/sh".as_ptr(),
                 std::ptr::null::<*const libc::c_char>(),
                 std::ptr::null::<*const libc::c_char>(),
             )
@@ -94,9 +94,9 @@ pub fn run() -> Result<()> {
         let rc = unsafe {
             libc::syscall(
                 libc::SYS_mount,
-                b"none\0".as_ptr(),
-                b"/mnt\0".as_ptr(),
-                b"tmpfs\0".as_ptr(),
+                c"none".as_ptr(),
+                c"/mnt".as_ptr(),
+                c"tmpfs".as_ptr(),
                 0u64,
                 std::ptr::null::<u8>(),
             )
