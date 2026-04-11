@@ -13,7 +13,7 @@ fn all_metachars_rejected() {
         "ls; id",
         "ls && id",
         "ls || id",
-        "ls | id",         // <-- this one is actually OK, leave as sanity
+        "ls | id", // <-- this one is actually OK, leave as sanity
         "ls & ",
         "cat > /tmp/x",
         "cat >> /tmp/x",
@@ -31,7 +31,7 @@ fn all_metachars_rejected() {
         r#"echo "$(id)""#,
         r#"echo "`id`""#,
         "echo 'hi'",
-        "find / -exec sh {} ;",   // semicolon is itself rejected
+        "find / -exec sh {} ;", // semicolon is itself rejected
     ];
     for b in bad {
         if b == "ls | id" {
