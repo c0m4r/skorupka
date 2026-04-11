@@ -34,8 +34,40 @@ pub fn apply() -> Result<()> {
 
     let mut rules: BTreeMap<i64, Vec<SeccompRule>> = BTreeMap::new();
     for nr in allowed {
-        rules.insert(nr as i64, vec![]); // empty rule set = unconditional allow
+        rules.insert(nr, vec![]); // empty rule set = unconditional allow
     }
+
+    // clone() is allowed, but ONLY when no new-namespace flags are set.
+    // clone's first argument is `unsigned long flags`, held in a register,
+    // which seccomp-bpf CAN filter. We reject any of CLONE_NEWNS, NEWUTS,
+    // NEWIPC, NEWUSER, NEWPID, NEWNET, NEWCGROUP in a single MaskedEq rule:
+    //     (flags & NS_MASK) == 0 → allow
+    //     otherwise             → default action (ENOSYS)
+    //
+    // Defense-in-depth: mount/setns/pivot_root/unshare are already denied
+    // elsewhere in this filter, so even if a namespace flag slipped past,
+    // an attacker could not do anything useful inside a fresh namespace.
+    // But defense-in-depth means closing what we can close, so we close
+    // this too.
+    //
+    // clone3() below is NOT filtered because its flags live in a struct
+    // pointed to by arg 0, and seccomp-bpf cannot dereference user memory.
+    const CLONE_NS_MASK: u64 = (libc::CLONE_NEWNS
+        | libc::CLONE_NEWUTS
+        | libc::CLONE_NEWIPC
+        | libc::CLONE_NEWUSER
+        | libc::CLONE_NEWPID
+        | libc::CLONE_NEWNET
+        | libc::CLONE_NEWCGROUP) as u64;
+    let clone_rule = SeccompRule::new(vec![SeccompCondition::new(
+        0,
+        SeccompCmpArgLen::Qword,
+        SeccompCmpOp::MaskedEq(CLONE_NS_MASK),
+        0,
+    )
+    .expect("build clone seccomp condition")])
+    .expect("build clone seccomp rule");
+    rules.insert(libc::SYS_clone, vec![clone_rule]);
 
     // ioctl is allowed, but ONLY for a narrow set of READ-ONLY terminal
     // and fd-flag cmds. TIOCSTI ("push char into tty input") is the most
@@ -70,7 +102,7 @@ pub fn apply() -> Result<()> {
             .expect("build ioctl seccomp rule")
         })
         .collect();
-    rules.insert(libc::SYS_ioctl as i64, ioctl_rules);
+    rules.insert(libc::SYS_ioctl, ioctl_rules);
 
     let filter = SeccompFilter::new(
         rules,
@@ -127,19 +159,34 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_sigaltstack,
 
         // --- thread creation (we need it for pipeline stages) ---
-        // clone is allowed WITHOUT argument filtering in v1 for simplicity;
-        // seccomp arg filtering is fragile and NEWUSER/NEWNS are already
-        // blocked because unshare/setns/clone3 are denied. Thread clones
-        // go via plain SYS_clone, which is what we allow.
-        libc::SYS_clone,
-        // clone3: required on modern glibc (Ubuntu 24.04, kernel 6.8+).
-        //   glibc's pthread_create uses clone3 by default and caches
-        //   success from pre-seal calls, so the usual ENOSYS fallback
-        //   won't trigger post-seal. Unfiltered clone3 permits NEWUSER/
-        //   NEWNS, but inside the sandbox that's defanged: mount/
-        //   pivot_root/setns/unshare are denied, execve is denied, and
-        //   landlock is inherited — a new user namespace gives the
-        //   attacker no new filesystem reach.
+        // SYS_clone is installed separately above with a MaskedEq rule on
+        // the flags argument that rejects every CLONE_NEW* namespace flag.
+        // It is NOT listed here because BTreeMap::insert would overwrite
+        // the filtered rule set with an unconditional allow.
+        //
+        // clone3 is required on modern glibc (2.34+, default on Ubuntu
+        // 24.04 / kernel 6.8+). glibc's pthread_create uses clone3 first
+        // and caches success after any successful call, so once we've
+        // spawned the first pipeline thread it will never fall back to
+        // SYS_clone — denying clone3 would break every pipeline.
+        //
+        // clone3 passes its flags inside a `struct clone_args` pointed
+        // to by arg 0, and seccomp-bpf cannot dereference user memory,
+        // so we cannot apply a MaskedEq rule here. This is a known
+        // kernel-interface limitation, not a skorupka design choice.
+        //
+        // Defense-in-depth mitigations for the unfiltered path:
+        //   - mount, umount2, pivot_root, chroot, setns, unshare, and
+        //     SYS_clone-with-NS-flags are all denied. A fresh user or
+        //     mount namespace gives the attacker no new filesystem reach.
+        //   - execve/execveat are denied, so they cannot hand control to
+        //     a setuid binary that would normally gain privileges across
+        //     the namespace boundary.
+        //   - Landlock is inherited across namespace creation.
+        //   - PR_SET_NO_NEW_PRIVS is inherited and cannot be disabled.
+        // The residual attack surface is therefore limited to whatever a
+        // new-namespace-but-still-sandboxed process can do, which in
+        // practice is nothing the parent couldn't already do.
         libc::SYS_clone3,
         libc::SYS_futex,
         libc::SYS_set_robust_list,

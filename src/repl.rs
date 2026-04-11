@@ -9,6 +9,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashSet;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use crate::audit;
 use crate::builtins::{self, Ctx};
@@ -55,7 +57,7 @@ pub fn run(config_path: &str, user_override: Option<&str>) -> Result<()> {
     let mut ctx = Ctx {
         cwd: std::env::current_dir().unwrap_or(start_dir),
         enabled: policy.builtins_enabled.iter().cloned().collect::<HashSet<_>>(),
-        output_budget: cfg.defaults.max_output_bytes,
+        output_budget: Arc::new(AtomicU64::new(cfg.defaults.max_output_bytes)),
     };
 
     print_banner(&policy);
@@ -108,8 +110,10 @@ pub fn run(config_path: &str, user_override: Option<&str>) -> Result<()> {
                     continue;
                 }
 
-                // Reset per-pipeline budget.
-                ctx.output_budget = cfg.defaults.max_output_bytes;
+                // Reset per-pipeline budget. A fresh AtomicU64 is created
+                // for each pipeline so stages from a previous pipeline
+                // cannot carry a depleted counter into the next command.
+                ctx.output_budget = Arc::new(AtomicU64::new(cfg.defaults.max_output_bytes));
 
                 // Handle `exit` as a REPL directive.
                 if pipeline.stages.len() == 1 && matches!(
@@ -218,17 +222,19 @@ fn run_pipeline(p: &Pipeline, ctx: &mut Ctx) -> Result<()> {
     thread::scope(|scope| -> Result<()> {
         let mut handles = Vec::with_capacity(n);
 
-        for (_i, stage) in p.stages.iter().enumerate() {
+        for stage in p.stages.iter() {
             let name = stage.argv[0].clone();
             let bf = builtins::lookup(&name).unwrap();
             let argv = stage.argv.clone();
             let mut r = readers.remove(0);
             let mut w = writers.remove(0);
-            // Clone ctx per stage; pipelines do not mutate shared state.
+            // All stages share one AtomicU64 budget so the TOTAL bytes
+            // moved by the entire pipeline is bounded to max_output_bytes,
+            // with no per-stage caps and no integer-division slop.
             let mut stage_ctx = Ctx {
                 cwd: ctx.cwd.clone(),
                 enabled: ctx.enabled.clone(),
-                output_budget: ctx.output_budget / (n as u64).max(1),
+                output_budget: Arc::clone(&ctx.output_budget),
             };
 
             let h = scope.spawn(move || -> Stage2Result {

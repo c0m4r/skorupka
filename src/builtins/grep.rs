@@ -61,12 +61,12 @@ pub fn run(
             if matched ^ invert {
                 found_any = true;
                 if let Some(p) = prefix {
-                    write_bytes(stdout, p.as_bytes(), &mut ctx.output_budget)?;
-                    write_bytes(stdout, b":", &mut ctx.output_budget)?;
+                    write_bytes(stdout, p.as_bytes(), &ctx.output_budget)?;
+                    write_bytes(stdout, b":", &ctx.output_budget)?;
                 }
-                write_bytes(stdout, &line, &mut ctx.output_budget)?;
+                write_bytes(stdout, &line, &ctx.output_budget)?;
                 if !line.ends_with(b"\n") {
-                    write_bytes(stdout, b"\n", &mut ctx.output_budget)?;
+                    write_bytes(stdout, b"\n", &ctx.output_budget)?;
                 }
             }
         }

@@ -4,6 +4,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 
 pub fn run(
     argv: &[String],
@@ -13,13 +14,13 @@ pub fn run(
 ) -> Result<()> {
     let (n, files) = parse_args(argv)?;
     if files.is_empty() {
-        tail_reader(BufReader::new(stdin), stdout, n, &mut ctx.output_budget)?;
+        tail_reader(BufReader::new(stdin), stdout, n, &ctx.output_budget)?;
     } else {
         for f in files {
             let p = resolve(&ctx.cwd, &f);
             let fh = std::fs::File::open(&p)
                 .with_context(|| format!("tail: {}", p.display()))?;
-            tail_reader(BufReader::new(fh), stdout, n, &mut ctx.output_budget)?;
+            tail_reader(BufReader::new(fh), stdout, n, &ctx.output_budget)?;
         }
     }
     Ok(())
@@ -53,7 +54,7 @@ fn tail_reader<R: BufRead>(
     mut r: R,
     w: &mut dyn Write,
     n: usize,
-    budget: &mut u64,
+    budget: &AtomicU64,
 ) -> Result<()> {
     let mut ring: VecDeque<Vec<u8>> = VecDeque::with_capacity(n.min(4096));
     loop {

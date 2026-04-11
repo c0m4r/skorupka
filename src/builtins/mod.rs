@@ -9,6 +9,8 @@
 
 use anyhow::Result;
 use std::io::{Read, Write};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 pub mod cat;
 pub mod cd;
@@ -32,8 +34,39 @@ pub struct Ctx {
     pub cwd: std::path::PathBuf,
     /// Enabled builtin names for the current user.
     pub enabled: std::collections::HashSet<String>,
-    /// Output byte budget for one pipeline, decremented as bytes are written.
-    pub output_budget: u64,
+    /// Output byte budget shared across all stages of the current pipeline.
+    /// Each write call atomically draws from this pool; the pipeline is
+    /// aborted when it hits zero. Using a shared counter (vs. per-stage
+    /// copies) means the TOTAL bytes moved by the entire pipeline — across
+    /// all concurrent stages — is bounded to exactly `max_output_bytes`,
+    /// with no integer-division slop and no per-stage caps that could either
+    /// over-restrict (budget/n < budget) or allow independent overdraft.
+    pub output_budget: Arc<AtomicU64>,
+}
+
+/// Attempt to atomically spend `cost` bytes from `budget`.
+///
+/// Uses a compare-exchange loop so concurrent stages cannot each
+/// independently read a value, decide it is sufficient, and both
+/// subtract — which would underflow the counter. Returns `false`
+/// if fewer than `cost` bytes remain; the caller should bail.
+pub fn budget_spend(budget: &AtomicU64, cost: u64) -> bool {
+    use std::sync::atomic::Ordering;
+    let mut current = budget.load(Ordering::Relaxed);
+    loop {
+        if current < cost {
+            return false;
+        }
+        match budget.compare_exchange_weak(
+            current,
+            current - cost,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return true,
+            Err(actual) => current = actual,
+        }
+    }
 }
 
 /// Builtin signature. stdin/stdout are trait objects so pipeline stages

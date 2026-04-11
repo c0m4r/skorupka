@@ -1,7 +1,8 @@
-use super::Ctx;
+use super::{budget_spend, Ctx};
 use anyhow::{Context, Result};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 
 pub fn run(
     argv: &[String],
@@ -13,14 +14,14 @@ pub fn run(
     if files.is_empty() {
         // No args: pass stdin through, so `cat | grep foo` works even if
         // a user is curious.
-        copy(stdin, stdout, &mut ctx.output_budget)?;
+        copy(stdin, stdout, &ctx.output_budget)?;
         return Ok(());
     }
     for f in files {
         let p = resolve(&ctx.cwd, f);
         let mut fh = std::fs::File::open(&p)
             .with_context(|| format!("cat: {}", p.display()))?;
-        copy(&mut fh, stdout, &mut ctx.output_budget)?;
+        copy(&mut fh, stdout, &ctx.output_budget)?;
     }
     Ok(())
 }
@@ -34,20 +35,25 @@ fn resolve(cwd: &std::path::Path, arg: &str) -> PathBuf {
     }
 }
 
-fn copy(src: &mut dyn Read, dst: &mut dyn Write, budget: &mut u64) -> Result<()> {
+fn copy(src: &mut dyn Read, dst: &mut dyn Write, budget: &AtomicU64) -> Result<()> {
+    use std::sync::atomic::Ordering;
     let mut buf = [0u8; 16 * 1024];
     loop {
-        if *budget == 0 {
+        let remaining = budget.load(Ordering::Relaxed);
+        if remaining == 0 {
             anyhow::bail!("output budget exhausted");
         }
-        // Cap the read at remaining budget so a partial buffer doesn't
-        // silently drop bytes between read and write.
-        let want = std::cmp::min(buf.len() as u64, *budget) as usize;
+        // Cap the read request to the remaining budget so we never try to
+        // write more than we are allowed to spend. The actual spend is
+        // committed atomically after the read so we know the exact count.
+        let want = std::cmp::min(buf.len() as u64, remaining) as usize;
         let n = src.read(&mut buf[..want])?;
         if n == 0 {
             return Ok(());
         }
+        if !budget_spend(budget, n as u64) {
+            anyhow::bail!("output budget exhausted");
+        }
         dst.write_all(&buf[..n])?;
-        *budget -= n as u64;
     }
 }

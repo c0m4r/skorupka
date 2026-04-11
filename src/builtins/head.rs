@@ -1,7 +1,8 @@
-use super::Ctx;
+use super::{budget_spend, Ctx};
 use anyhow::{bail, Context, Result};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 
 pub fn run(
     argv: &[String],
@@ -11,13 +12,13 @@ pub fn run(
 ) -> Result<()> {
     let (n, files) = parse_args(argv)?;
     if files.is_empty() {
-        head_reader(BufReader::new(stdin), stdout, n, &mut ctx.output_budget)?;
+        head_reader(BufReader::new(stdin), stdout, n, &ctx.output_budget)?;
     } else {
         for f in files {
             let p = resolve(&ctx.cwd, &f);
             let fh = std::fs::File::open(&p)
                 .with_context(|| format!("head: {}", p.display()))?;
-            head_reader(BufReader::new(fh), stdout, n, &mut ctx.output_budget)?;
+            head_reader(BufReader::new(fh), stdout, n, &ctx.output_budget)?;
         }
     }
     Ok(())
@@ -51,7 +52,7 @@ fn head_reader<R: BufRead>(
     mut r: R,
     w: &mut dyn Write,
     n: usize,
-    budget: &mut u64,
+    budget: &AtomicU64,
 ) -> Result<()> {
     let mut line = Vec::new();
     for _ in 0..n {
@@ -65,12 +66,12 @@ fn head_reader<R: BufRead>(
     Ok(())
 }
 
-pub(crate) fn write_bytes(w: &mut dyn Write, b: &[u8], budget: &mut u64) -> Result<()> {
-    if (b.len() as u64) > *budget {
+pub(crate) fn write_bytes(w: &mut dyn Write, b: &[u8], budget: &AtomicU64) -> Result<()> {
+    let cost = b.len() as u64;
+    if !budget_spend(budget, cost) {
         anyhow::bail!("output budget exhausted");
     }
     w.write_all(b)?;
-    *budget -= b.len() as u64;
     Ok(())
 }
 

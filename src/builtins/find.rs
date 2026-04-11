@@ -95,7 +95,7 @@ fn walk(
         };
         if matches_name && matches_type {
             let line = format!("{}\n", p.display());
-            super::head::write_bytes(out, line.as_bytes(), &mut ctx.output_budget)?;
+            super::head::write_bytes(out, line.as_bytes(), &ctx.output_budget)?;
         }
         if ft.is_dir() {
             if let Some(md2) = max_depth {

@@ -111,6 +111,39 @@ pub fn run() -> Result<()> {
         if rc == -1 { Ok(()) } else { bail!("unshare returned {}", rc) }
     });
 
+    run("clone(CLONE_NEWUSER) blocked by seccomp arg filter", &|| {
+        // Directly invoke clone with the namespace flag — this is the
+        // path an attacker would take to bypass the unshare block. The
+        // MaskedEq rule on SYS_clone must reject it before kernel entry.
+        // We pass a null stack; the clone will never actually run far
+        // enough to need one because seccomp denies it first.
+        let rc = unsafe {
+            libc::syscall(
+                libc::SYS_clone,
+                libc::CLONE_NEWUSER as libc::c_ulong,
+                std::ptr::null::<u8>(),
+                std::ptr::null::<u8>(),
+                std::ptr::null::<u8>(),
+                0u64,
+            )
+        };
+        if rc == -1 { Ok(()) } else { bail!("clone(NEWUSER) returned {}", rc) }
+    });
+
+    run("clone(CLONE_NEWNS) blocked by seccomp arg filter", &|| {
+        let rc = unsafe {
+            libc::syscall(
+                libc::SYS_clone,
+                libc::CLONE_NEWNS as libc::c_ulong,
+                std::ptr::null::<u8>(),
+                std::ptr::null::<u8>(),
+                std::ptr::null::<u8>(),
+                0u64,
+            )
+        };
+        if rc == -1 { Ok(()) } else { bail!("clone(NEWNS) returned {}", rc) }
+    });
+
     run("ptrace blocked by seccomp", &|| {
         let rc = unsafe { libc::syscall(libc::SYS_ptrace, 0u64, 0u64, 0u64, 0u64) };
         if rc == -1 { Ok(()) } else { bail!("ptrace returned {}", rc) }
