@@ -5,6 +5,33 @@
 //! (RLIMIT_FSIZE=0 is a belt-and-braces second layer). Once installed,
 //! the ruleset cannot be widened — only further narrowed by later
 //! `landlock_restrict_self` calls.
+//!
+//! ## ABI version / kernel compatibility
+//!
+//! We request ABI v3. The kernel downgrades silently to whatever it
+//! supports, and `restrict_self` reports the outcome via `RulesetStatus`:
+//!
+//! | ABI | Min kernel | Access types added |
+//! |-----|------------|-------------------|
+//! | v1  | 5.13       | read_file, read_dir, write_file, remove_*, make_*, link, rename, execute |
+//! | v2  | 5.19       | + refer (cross-directory renames/hard-links) |
+//! | v3  | 6.1        | + truncate |
+//!
+//! Under PartiallyEnforced the kernel silently **drops** access types it
+//! doesn't know about from the ruleset — it does not widen permissions.
+//! Because we only *grant* read access (read_file + read_dir), and never
+//! grant write/execute/truncate/refer, the dropped types are exclusively
+//! from the "things we asked to *control*" set, not from the "things we
+//! *allow*" set. A sandboxed process therefore cannot gain write,
+//! execute, or truncate access that would not be permitted under full
+//! enforcement.
+//!
+//! The one edge case: v1 kernels (5.13–5.18) lack the `refer` type.
+//! `refer` governs cross-directory hard-links and renames. Without it,
+//! a process could in theory create a hard-link across allowed
+//! directories — but skorupka never grants write access to any path, so
+//! there is no writable directory in which to land the link. The missing
+//! `refer` control is therefore inert in this configuration.
 
 use anyhow::{bail, Context, Result};
 use landlock::{
@@ -51,9 +78,18 @@ pub fn apply(allowed_ro: &[std::path::PathBuf]) -> Result<()> {
         // write access is ever granted anyway, so confidentiality and
         // integrity are still enforced.
         RulesetStatus::PartiallyEnforced => {
+            // See module-level doc for why this is safe in a read-only
+            // configuration (short: dropped access types are all write-
+            // side types we never grant anyway).
             tracing::warn!(
-                "landlock partially enforced: kernel is older than the ABI we built for, \
-                 but the read-only allowlist is still active"
+                target: "skorupka::audit",
+                kind = "landlock_partial",
+                requested_abi = ?abi,
+                "landlock PartiallyEnforced: kernel predates ABI {:?}; \
+                 newer access types (truncate / refer) were dropped from \
+                 the ruleset. Read-only path confinement is still active. \
+                 Deploy on kernel 6.1+ to eliminate this warning.",
+                abi,
             );
             Ok(())
         }

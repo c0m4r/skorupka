@@ -1,8 +1,7 @@
-use super::{budget_spend, Ctx};
+use super::Ctx;
 use anyhow::{bail, Context, Result};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 
 pub fn run(
     argv: &[String],
@@ -12,12 +11,13 @@ pub fn run(
 ) -> Result<()> {
     let (n, files) = parse_args(argv)?;
     if files.is_empty() {
-        head_reader(BufReader::new(stdin), stdout, n, &ctx.output_budget)?;
+        head_reader(BufReader::new(stdin), stdout, n)?;
     } else {
         for f in files {
             let p = resolve(&ctx.cwd, &f);
-            let fh = std::fs::File::open(&p).with_context(|| format!("head: {}", p.display()))?;
-            head_reader(BufReader::new(fh), stdout, n, &ctx.output_budget)?;
+            let fh = std::fs::File::open(&p)
+                .with_context(|| format!("head: {}", p.display()))?;
+            head_reader(BufReader::new(fh), stdout, n)?;
         }
     }
     Ok(())
@@ -30,9 +30,7 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "-n" => {
-                let v = it
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("head: -n needs value"))?;
+                let v = it.next().ok_or_else(|| anyhow::anyhow!("head: -n needs value"))?;
                 n = v.parse().context("head: -n value")?;
             }
             s if s.starts_with("-") => {
@@ -49,12 +47,7 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
     Ok((n, files))
 }
 
-fn head_reader<R: BufRead>(
-    mut r: R,
-    w: &mut dyn Write,
-    n: usize,
-    budget: &AtomicU64,
-) -> Result<()> {
+fn head_reader<R: BufRead>(mut r: R, w: &mut dyn Write, n: usize) -> Result<()> {
     let mut line = Vec::new();
     for _ in 0..n {
         line.clear();
@@ -62,16 +55,14 @@ fn head_reader<R: BufRead>(
         if got == 0 {
             break;
         }
-        write_bytes(w, &line, budget)?;
+        write_bytes(w, &line)?;
     }
     Ok(())
 }
 
-pub(crate) fn write_bytes(w: &mut dyn Write, b: &[u8], budget: &AtomicU64) -> Result<()> {
-    let cost = b.len() as u64;
-    if !budget_spend(budget, cost) {
-        anyhow::bail!("output budget exhausted");
-    }
+/// Write `b` to `w`. Budget enforcement is handled transparently by the
+/// `SafeWriter` wrapper in the REPL layer; builtins just write normally.
+pub(crate) fn write_bytes(w: &mut dyn Write, b: &[u8]) -> Result<()> {
     w.write_all(b)?;
     Ok(())
 }

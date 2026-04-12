@@ -4,7 +4,6 @@ use anyhow::{bail, Context, Result};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 
 pub fn run(
     argv: &[String],
@@ -14,12 +13,13 @@ pub fn run(
 ) -> Result<()> {
     let (n, files) = parse_args(argv)?;
     if files.is_empty() {
-        tail_reader(BufReader::new(stdin), stdout, n, &ctx.output_budget)?;
+        tail_reader(BufReader::new(stdin), stdout, n)?;
     } else {
         for f in files {
             let p = resolve(&ctx.cwd, &f);
-            let fh = std::fs::File::open(&p).with_context(|| format!("tail: {}", p.display()))?;
-            tail_reader(BufReader::new(fh), stdout, n, &ctx.output_budget)?;
+            let fh = std::fs::File::open(&p)
+                .with_context(|| format!("tail: {}", p.display()))?;
+            tail_reader(BufReader::new(fh), stdout, n)?;
         }
     }
     Ok(())
@@ -32,9 +32,7 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "-n" => {
-                let v = it
-                    .next()
-                    .ok_or_else(|| anyhow::anyhow!("tail: -n needs value"))?;
+                let v = it.next().ok_or_else(|| anyhow::anyhow!("tail: -n needs value"))?;
                 n = v.parse().context("tail: -n value")?;
             }
             s if s.starts_with("-") => {
@@ -51,12 +49,7 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
     Ok((n, files))
 }
 
-fn tail_reader<R: BufRead>(
-    mut r: R,
-    w: &mut dyn Write,
-    n: usize,
-    budget: &AtomicU64,
-) -> Result<()> {
+fn tail_reader<R: BufRead>(mut r: R, w: &mut dyn Write, n: usize) -> Result<()> {
     let mut ring: VecDeque<Vec<u8>> = VecDeque::with_capacity(n.min(4096));
     loop {
         let mut line = Vec::new();
@@ -70,7 +63,7 @@ fn tail_reader<R: BufRead>(
         ring.push_back(line);
     }
     for line in &ring {
-        write_bytes(w, line, budget)?;
+        write_bytes(w, line)?;
     }
     Ok(())
 }

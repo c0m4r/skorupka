@@ -9,8 +9,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashSet;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::audit;
 use crate::builtins::{self, Ctx};
@@ -202,7 +202,7 @@ fn run_pipeline(p: &Pipeline, ctx: &mut Ctx) -> Result<()> {
         let bf = builtins::lookup(name).unwrap();
         let mut stdin_r: Box<dyn Read + Send> = Box::new(io::empty());
         let stdout = io::stdout();
-        let mut safe = SafeWriter::new(stdout.lock());
+        let mut safe = SafeWriter::new(stdout.lock(), Arc::clone(&ctx.output_budget));
         return bf(&stage.argv, &mut *stdin_r, &mut safe, ctx);
     }
 
@@ -222,8 +222,8 @@ fn run_pipeline(p: &Pipeline, ctx: &mut Ctx) -> Result<()> {
         writers.push(Box::new(w));
         readers.push(Box::new(r));
     }
-    // Final writer is a line-buffered wrapper over stdout.
-    writers.push(Box::new(StdoutSink::new()));
+    // Final writer is a budget-aware, ANSI-safe wrapper over stdout.
+    writers.push(Box::new(StdoutSink::new(Arc::clone(&ctx.output_budget))));
 
     thread::scope(|scope| -> Result<()> {
         let mut handles = Vec::with_capacity(n);
@@ -276,18 +276,22 @@ struct Stage2Result {
 }
 
 /// Writer that flushes each write to the process stdout behind a lock,
-/// passing every byte through `SafeWriter`'s ANSI-escape filter.
-struct StdoutSink {}
+/// passing every byte through `SafeWriter`'s budget check and ANSI filter.
+/// This is used as the final-stage writer in multi-stage pipelines so
+/// that all concurrent pipeline threads share one output path.
+struct StdoutSink {
+    budget: Arc<AtomicU64>,
+}
 impl StdoutSink {
-    fn new() -> Self {
-        Self {}
+    fn new(budget: Arc<AtomicU64>) -> Self {
+        Self { budget }
     }
 }
 impl Write for StdoutSink {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let out = io::stdout();
         let mut lock = out.lock();
-        let mut safe = SafeWriter::new(&mut lock);
+        let mut safe = SafeWriter::new(&mut lock, Arc::clone(&self.budget));
         safe.write_all(buf)?;
         Ok(buf.len())
     }
@@ -296,36 +300,48 @@ impl Write for StdoutSink {
     }
 }
 
-/// A write filter that replaces bytes which could attack the operator's
-/// terminal emulator. The classic scenario: an attacker plants an ANSI
-/// escape (or other control sequence) inside a log file; the analyst
-/// later runs `cat` on that file through skorupka; the escape reaches
-/// the analyst's local terminal and e.g. repositions the cursor, rewrites
-/// previously-displayed text, clears the scrollback, or (on some
-/// terminals) executes embedded commands.
+/// A write filter that:
+///   1. Enforces the shared output byte budget (fails with an IO error
+///      when the budget is exhausted so builtins stop writing naturally).
+///   2. Replaces bytes which could attack the operator's terminal emulator
+///      — ESC (0x1B), DEL (0x7F), BEL (0x07), and all other C0/C1 control
+///      bytes — with '?'. TAB, LF, and CR pass through unchanged.
+///      UTF-8 high bytes (0x80–0xFF) also pass through.
 ///
-/// Rules:
-///   - 0x09 (TAB), 0x0A (LF), 0x0D (CR) pass through.
-///   - 0x20..=0x7E (printable ASCII) passes through.
-///   - 0x80..=0xFF (UTF-8 continuation / high bytes) passes through,
-///     so logs containing legitimate UTF-8 still render correctly.
-///   - Everything else — in particular 0x1B (ESC), 0x7F (DEL), and the
-///     rest of C0 — is replaced with '?'.
+/// Every user-visible output path goes through this writer, so neither
+/// the budget cap nor the ANSI filter can be bypassed by any builtin,
+/// regardless of whether it calls writeln!, write_all, or a helper.
 ///
-/// Filtering at byte level is safe for UTF-8 because multi-byte
-/// sequences never use bytes below 0x80.
+/// Budget accounting uses the *pre-filter* byte count (original `buf`
+/// length). This is intentionally conservative: a stream of pure control
+/// bytes would each be replaced with '?' and still count against the
+/// budget, preventing an attacker from bypassing the cap with a payload
+/// that shrinks or expands after filtering.
 struct SafeWriter<W: Write> {
     inner: W,
+    budget: Arc<AtomicU64>,
 }
 impl<W: Write> SafeWriter<W> {
-    fn new(inner: W) -> Self {
-        Self { inner }
+    fn new(inner: W, budget: Arc<AtomicU64>) -> Self {
+        Self { inner, budget }
     }
 }
 impl<W: Write> Write for SafeWriter<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // Walk the buffer, writing contiguous safe runs directly and
-        // emitting a single '?' for each unsafe byte.
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        // Spend the budget before writing. The CAS loop in budget_spend
+        // prevents concurrent stages from each reading a remaining value,
+        // deciding they can afford their write, and both subtracting —
+        // which would underflow the counter.
+        if !budget_spend(&self.budget, buf.len() as u64) {
+            return Err(io::Error::other(
+                "output budget exhausted",
+            ));
+        }
+        // Strip control bytes: walk the buffer writing contiguous safe
+        // runs directly and emitting a single '?' for each unsafe byte.
         let mut start = 0;
         for (i, &b) in buf.iter().enumerate() {
             if !is_safe_byte(b) {
@@ -346,6 +362,27 @@ impl<W: Write> Write for SafeWriter<W> {
     }
 }
 
+/// Attempt to atomically spend `cost` bytes from `budget`.
+/// Uses a compare-exchange loop to prevent concurrent overdraft.
+/// Returns `false` if fewer than `cost` bytes remain.
+fn budget_spend(budget: &AtomicU64, cost: u64) -> bool {
+    let mut current = budget.load(Ordering::Relaxed);
+    loop {
+        if current < cost {
+            return false;
+        }
+        match budget.compare_exchange_weak(
+            current,
+            current - cost,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return true,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
 #[inline]
 fn is_safe_byte(b: u8) -> bool {
     matches!(b, 0x09 | 0x0A | 0x0D | 0x20..=0x7E | 0x80..=0xFF)
@@ -357,8 +394,12 @@ mod safe_writer_tests {
     use std::io::Write;
 
     fn filtered(s: &[u8]) -> Vec<u8> {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicU64;
         let mut buf = Vec::new();
-        let mut w = SafeWriter::new(&mut buf);
+        // Use a large budget so tests focus on the ANSI filter, not the cap.
+        let budget = Arc::new(AtomicU64::new(u64::MAX));
+        let mut w = SafeWriter::new(&mut buf, budget);
         w.write_all(s).unwrap();
         buf
     }
@@ -394,5 +435,40 @@ mod safe_writer_tests {
     fn strips_osc_command() {
         // Set-window-title OSC sequence: ESC ] 0 ; ... BEL
         assert_eq!(filtered(b"\x1b]0;pwn\x07"), b"?]0;pwn?");
+    }
+
+    #[test]
+    fn budget_zero_blocks_all_writes() {
+        // A SafeWriter with budget=0 must refuse any write, even from a
+        // builtin that calls writeln! directly (the path that previously
+        // bypassed budget enforcement).
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicU64;
+        let mut buf = Vec::new();
+        let budget = Arc::new(AtomicU64::new(0));
+        let mut w = SafeWriter::new(&mut buf, budget);
+        let result = w.write_all(b"hello");
+        assert!(result.is_err(), "write through exhausted budget should fail");
+        assert!(buf.is_empty(), "no bytes should have been written");
+    }
+
+    #[test]
+    fn budget_exact_allows_then_blocks() {
+        // Budget of 5 allows the first 5-byte write, then refuses the next.
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicU64;
+        let budget = Arc::new(AtomicU64::new(5));
+        let result = {
+            let mut buf = Vec::new();
+            {
+                let mut w = SafeWriter::new(&mut buf, Arc::clone(&budget));
+                w.write_all(b"hello").unwrap();
+            }
+            assert_eq!(&buf, b"hello");
+            let mut buf2 = Vec::new();
+            let mut w2 = SafeWriter::new(&mut buf2, Arc::clone(&budget));
+            w2.write_all(b"x")
+        };
+        assert!(result.is_err(), "write past budget should fail");
     }
 }

@@ -74,7 +74,7 @@ fn walk(
     name_substr: &Option<String>,
     type_filter: Option<char>,
     out: &mut dyn Write,
-    ctx: &mut Ctx,
+    _ctx: &mut Ctx,
 ) -> Result<()> {
     let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
     queue.push_back((path.to_path_buf(), depth));
@@ -101,7 +101,7 @@ fn walk(
         };
         if matches_name && matches_type {
             let line = format!("{}\n", p.display());
-            super::head::write_bytes(out, line.as_bytes(), &ctx.output_budget)?;
+            super::head::write_bytes(out, line.as_bytes())?;
         }
         if ft.is_dir() {
             if let Some(md2) = max_depth {

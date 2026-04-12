@@ -85,7 +85,7 @@ disk, execute arbitrary code, or pivot off the host.
 | 3 | Capability drop (all ambient + bounding) | `CAP_SYS_ADMIN`, `CAP_DAC_READ_SEARCH`, etc. reappearing mid-session | Landlock + seccomp still enforce |
 | 4 | `RLIMIT_NPROC / CPU / AS / FSIZE / NOFILE / CORE=0` | fork bombs, cpu-burn, memory exhaustion, core-dump info leaks, write-anything-ever | Seccomp-denied `fork`-family syscalls make nproc moot, but the belt-and-braces stays |
 | 5 | FD scrub + pre-opened `/dev/null` blackhole fd | inherited-fd smuggling from sshd; gives skorupka a working write sink even after landlock seals the filesystem | N/A (prerequisite for later layers, not itself a defense) |
-| 6 | Landlock read-only ruleset | Reading / writing any path not in `allowed_paths_ro`, including symlink traversal out of the allowlist | Parser+builtin allowlist still prevents `cat /etc/shadow`-style requests from ever being issued |
+| 6 | Landlock read-only ruleset (see §Kernel compatibility) | Reading / writing any path not in `allowed_paths_ro`, including symlink traversal out of the allowlist | Parser+builtin allowlist still prevents `cat /etc/shadow`-style requests from ever being issued |
 | 7 | seccomp-bpf allowlist | `execve`, `mount`, `pivot_root`, `chroot`, `unshare`, `setns`, `bpf`, `ptrace`, `process_vm_*`, `keyctl`, `kexec*`, `init_module`, `reboot`, `setuid*`, `capset`, `io_uring_*`, `open_by_handle_at`, `perf_event_open`, TIOCSTI + TCSETS ioctls | Landlock still enforces path confinement |
 | 8 | Parser (metacharacter-free) | `;`, `&`, `&&`, `\|\|`, `>`, `<`, globs, `$()`, backticks, tilde expansion, history expansion — none survive tokenization | A bug here is contained by layers 6+7: even with a crafted argv, builtins have no way to escape |
 | 9 | Builtin allowlist | Running anything not in `builtins_enabled` for this user | Parser already rejects unknown names |
@@ -195,16 +195,43 @@ them.
   ignored in v1 (no externals to give them to), so turning them on is a
   no-op rather than a widening
 
-### Known limitations
+### Kernel compatibility
 
-- **Partial-enforce on kernels <6.1.** Skorupka requests Landlock ABI
-  v3 (which adds `LANDLOCK_ACCESS_FS_TRUNCATE` and the refer rule).
-  On older kernels `restrict_self` returns `PartiallyEnforced` and
-  skorupka logs a `WARN`. Read-only confinement is still active, but
-  truncate on an inherited writable fd would not be blocked. v1 does
-  not hand user code any writable fds, so this is informational rather
-  than a hole — but if you pair skorupka with something that does,
-  deploy only on 6.1+.
+Skorupka requests Landlock ABI v3 and gracefully degrades to whatever
+the running kernel supports:
+
+| Landlock ABI | Minimum kernel | Access types added vs. previous |
+|---|---|---|
+| v1 | 5.13 | read_file, read_dir, write_file, remove_\*, make_\*, link, rename, execute |
+| v2 | 5.19 | + refer (cross-directory renames / hard-links) |
+| **v3** | **6.1** | **+ truncate** ← what we request |
+
+When the kernel is older than ABI v3, `landlock_restrict_self` returns
+`PartiallyEnforced` and skorupka emits a `WARN` log line (tagged
+`skorupka::audit kind=landlock_partial`). The security impact of partial
+enforcement depends on *which* access types were dropped:
+
+**Why partial enforcement is still safe in a read-only configuration:**
+The kernel drops access types it doesn't know about from the ruleset
+silently — it does not *widen* permissions. Because skorupka only *grants*
+read access (`read_file` + `read_dir`) and never grants write, execute,
+truncate, or refer, the dropped types are exclusively ones we listed to
+*control* (so the kernel can deny them), not ones we *allow*. A sandboxed
+process therefore cannot gain write, execute, or truncate access that
+would not be present under full enforcement.
+
+**Residual cases to be aware of:**
+
+| Kernel range | Missing type | What an attacker could theoretically do | Why it's still safe here |
+|---|---|---|---|
+| 5.13 – 5.18 (ABI v1) | `refer` | Create a hard-link across allowed directories | skorupka never grants write access to any allowed path, so there is no writable destination for the link |
+| 5.13 – 6.0 (ABI v1/v2) | `truncate` | Truncate a file on an inherited writable fd | skorupka scrubs every writable fd above stderr before landlock seals; no writable fd survives into user code |
+
+**Recommendation:** deploy on kernel 6.1+ (`ABI::V3`) for fully
+enforced confinement with no residual cases. Run `skorupka check` to
+confirm the ABI the running kernel supports.
+
+### Known limitations
 - **No audit-log aggregation.** Audit events go to each sshd session's
   stderr (and hence to sshd's session log or journald under
   `skorupka::audit`). Piping that to a SIEM is the operator's job; v1
