@@ -32,7 +32,17 @@ pub fn seal(policy: &UserPolicy, limits: &Limits) -> Result<()> {
     caps::drop_all().context("dropping capabilities")?;
     rlimits::apply(limits).context("applying rlimits")?;
     fds::hygiene().context("fd hygiene")?;
-    landlock_layer::apply(&policy.allowed_paths_ro).context("landlock")?;
+
+    // Open O_PATH|O_NOFOLLOW fds to every allowed directory NOW — before
+    // Landlock and seccomp are active.  Once we hold a file descriptor the
+    // kernel pins the inode; any later rename or symlink swap of the
+    // directory entry cannot redirect the Landlock rule to a different path.
+    // Doing this here (rather than at config-parse time) keeps OwnedFd
+    // lifetime management out of the config layer, and doing it before
+    // seccomp means the open(2) syscall is still permitted.
+    let path_fds =
+        landlock_layer::open_path_fds(&policy.allowed_paths_ro).context("opening path fds")?;
+    landlock_layer::apply(path_fds).context("landlock")?;
     seccomp_layer::apply().context("seccomp")?;
     Ok(())
 }

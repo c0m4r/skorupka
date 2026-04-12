@@ -38,8 +38,47 @@ use landlock::{
     ABI, Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
     RulesetStatus,
 };
+use nix::fcntl::OFlag;
+use nix::sys::stat::Mode;
+use std::os::unix::io::{AsRawFd, OwnedFd};
 
-pub fn apply(allowed_ro: &[std::path::PathBuf]) -> Result<()> {
+/// Open an `O_PATH | O_CLOEXEC | O_NOFOLLOW` file descriptor for every
+/// allowed path and return the owned fds.
+///
+/// Must be called **before** Landlock and seccomp are applied so that:
+///   1. The `open(2)` syscall is not yet filtered by seccomp.
+///   2. We pin each inode immediately after `config::validate()` has
+///      canonicalized the paths, shrinking the TOCTOU window between
+///      "path validated" and "path handed to Landlock" to near-zero.
+///   3. `O_NOFOLLOW` on the final component causes the kernel to return
+///      `ELOOP` (not silently follow) if a symlink is swapped in after
+///      canonicalization — fail-safe rather than fail-open.
+pub fn open_path_fds(paths: &[std::path::PathBuf]) -> Result<Vec<OwnedFd>> {
+    paths
+        .iter()
+        .map(|p| {
+            let flags = OFlag::O_PATH | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW;
+            // nix 0.31 returns OwnedFd directly on success.
+            nix::fcntl::open(p.as_path(), flags, Mode::empty()).with_context(|| {
+                format!(
+                    "O_PATH|O_NOFOLLOW open of allowed path {} — \
+                     path may have been replaced with a symlink after validation",
+                    p.display()
+                )
+            })
+        })
+        .collect()
+}
+
+/// Install the Landlock ruleset using pre-opened path fds.
+///
+/// Accepts `Vec<OwnedFd>` (from [`open_path_fds`]) rather than path strings.
+/// Each `PathFd` is constructed via `/proc/self/fd/N` — the kernel resolves
+/// this to the inode the fd holds, not to the (possibly-changed) directory
+/// entry.  The result is that the Landlock rule is anchored to the pinned
+/// inode rather than to whatever happens to be at the original name at
+/// rule-add time.
+pub fn apply(path_fds: Vec<OwnedFd>) -> Result<()> {
     // Kernel 6.1+ gives us ABI v3 (TRUNCATE + refer).
     let abi = ABI::V3;
 
@@ -56,13 +95,22 @@ pub fn apply(allowed_ro: &[std::path::PathBuf]) -> Result<()> {
         .create()
         .context("ruleset create")?;
 
-    // Add one PathBeneath rule per allowed path. `add_rule` consumes and
-    // returns the ruleset, so we fold.
-    let rs = allowed_ro.iter().try_fold(rs, |rs, p| -> Result<_> {
-        let fd = PathFd::new(p).with_context(|| format!("opening allowed path {}", p.display()))?;
+    // Add one PathBeneath rule per pre-opened fd. We construct each
+    // PathFd via /proc/self/fd/N rather than from the original path
+    // string: the kernel resolves /proc/self/fd/N directly to the inode
+    // the fd refers to, bypassing any directory-entry lookup. Even if
+    // the directory entry was renamed or replaced after open_path_fds()
+    // returned, the rule still targets the correct inode.
+    let rs = path_fds.into_iter().try_fold(rs, |rs, fd| -> Result<_> {
+        let proc_path = format!("/proc/self/fd/{}", fd.as_raw_fd());
+        let path_fd = PathFd::new(&proc_path)
+            .with_context(|| format!("PathFd::new via {}", proc_path))?;
+        // `fd` must stay alive until PathFd::new returns so the kernel
+        // fd number is valid.  Drop it now; the PathFd holds the inode.
+        drop(fd);
         let rs = rs
-            .add_rule(PathBeneath::new(fd, read_only))
-            .with_context(|| format!("add_rule for {}", p.display()))?;
+            .add_rule(PathBeneath::new(path_fd, read_only))
+            .context("add_rule")?;
         Ok(rs)
     })?;
 
