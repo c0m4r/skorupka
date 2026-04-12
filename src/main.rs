@@ -7,7 +7,7 @@
 //!   - `adduser`   — create a sandbox user
 //!   - `selftest`  — run in-process escape-attempt suite
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
 mod audit;

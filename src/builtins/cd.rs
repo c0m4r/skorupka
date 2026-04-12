@@ -1,5 +1,5 @@
 use super::Ctx;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
@@ -31,9 +31,5 @@ pub fn run(
 
 fn resolve(cwd: &std::path::Path, arg: &str) -> PathBuf {
     let p = PathBuf::from(arg);
-    if p.is_absolute() {
-        p
-    } else {
-        cwd.join(p)
-    }
+    if p.is_absolute() { p } else { cwd.join(p) }
 }

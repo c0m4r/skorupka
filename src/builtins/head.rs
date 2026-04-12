@@ -1,5 +1,5 @@
-use super::Ctx;
-use anyhow::{bail, Context, Result};
+use super::{Ctx, read_line_capped};
+use anyhow::{Context, Result, bail};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 
@@ -15,8 +15,7 @@ pub fn run(
     } else {
         for f in files {
             let p = resolve(&ctx.cwd, &f);
-            let fh = std::fs::File::open(&p)
-                .with_context(|| format!("head: {}", p.display()))?;
+            let fh = std::fs::File::open(&p).with_context(|| format!("head: {}", p.display()))?;
             head_reader(BufReader::new(fh), stdout, n)?;
         }
     }
@@ -30,7 +29,9 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "-n" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("head: -n needs value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("head: -n needs value"))?;
                 n = v.parse().context("head: -n value")?;
             }
             s if s.starts_with("-") => {
@@ -50,8 +51,8 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
 fn head_reader<R: BufRead>(mut r: R, w: &mut dyn Write, n: usize) -> Result<()> {
     let mut line = Vec::new();
     for _ in 0..n {
-        line.clear();
-        let got = r.read_until(b'\n', &mut line)?;
+        // SEC-002: capped read prevents unbounded allocation on long lines.
+        let got = read_line_capped(&mut r, &mut line)?;
         if got == 0 {
             break;
         }
@@ -69,9 +70,5 @@ pub(crate) fn write_bytes(w: &mut dyn Write, b: &[u8]) -> Result<()> {
 
 fn resolve(cwd: &std::path::Path, arg: &str) -> PathBuf {
     let p = PathBuf::from(arg);
-    if p.is_absolute() {
-        p
-    } else {
-        cwd.join(p)
-    }
+    if p.is_absolute() { p } else { cwd.join(p) }
 }

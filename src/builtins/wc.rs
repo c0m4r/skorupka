@@ -1,4 +1,4 @@
-use super::Ctx;
+use super::{Ctx, read_line_capped};
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -41,12 +41,12 @@ fn count<R: BufRead>(mut r: R) -> Result<(u64, u64, u64)> {
     let mut bytes = 0u64;
     let mut buf = Vec::new();
     loop {
-        buf.clear();
-        let got = r.read_until(b'\n', &mut buf)?;
+        // SEC-002: capped read prevents unbounded allocation on long lines.
+        let got = read_line_capped(&mut r, &mut buf)?;
         if got == 0 {
             break;
         }
-        bytes += got as u64;
+        bytes += buf.len() as u64;
         if buf.ends_with(b"\n") {
             lines += 1;
         }
@@ -60,9 +60,5 @@ fn count<R: BufRead>(mut r: R) -> Result<(u64, u64, u64)> {
 
 fn resolve(cwd: &std::path::Path, arg: &str) -> PathBuf {
     let p = PathBuf::from(arg);
-    if p.is_absolute() {
-        p
-    } else {
-        cwd.join(p)
-    }
+    if p.is_absolute() { p } else { cwd.join(p) }
 }

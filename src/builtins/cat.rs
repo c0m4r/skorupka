@@ -17,8 +17,7 @@ pub fn run(
     }
     for f in files {
         let p = resolve(&ctx.cwd, f);
-        let mut fh = std::fs::File::open(&p)
-            .with_context(|| format!("cat: {}", p.display()))?;
+        let mut fh = std::fs::File::open(&p).with_context(|| format!("cat: {}", p.display()))?;
         copy(&mut fh, stdout)?;
     }
     Ok(())
@@ -26,11 +25,7 @@ pub fn run(
 
 fn resolve(cwd: &std::path::Path, arg: &str) -> PathBuf {
     let p = PathBuf::from(arg);
-    if p.is_absolute() {
-        p
-    } else {
-        cwd.join(p)
-    }
+    if p.is_absolute() { p } else { cwd.join(p) }
 }
 
 /// Copy `src` to `dst` in 16 KiB chunks. Budget enforcement and ANSI

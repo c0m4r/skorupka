@@ -11,7 +11,7 @@
 //! so having this fd stashed means builtins can always route noisy
 //! output to it without re-opening anything.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
 use std::sync::OnceLock;
 
@@ -28,7 +28,7 @@ pub fn blackhole() -> RawFd {
 }
 
 pub fn hygiene() -> Result<()> {
-    use nix::fcntl::{open, OFlag};
+    use nix::fcntl::{OFlag, open};
     use nix::sys::stat::Mode;
 
     // 1. Open /dev/null (RW so it can sink writes and provide EOF reads).

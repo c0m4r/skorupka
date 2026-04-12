@@ -4,7 +4,7 @@
 //! the sealed sandbox (they're invoked by an admin, not the restricted
 //! user).
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 
@@ -152,7 +152,9 @@ pub fn adduser(name: &str, paths: &[String]) -> Result<()> {
     println!("[[user]]");
     println!("name = \"{}\"", name);
     println!("allowed_paths_ro = [{}]", paths_list);
-    println!("builtins_enabled = [\"ls\",\"cat\",\"head\",\"tail\",\"grep\",\"wc\",\"pwd\",\"cd\",\"find\",\"date\",\"id\",\"help\",\"exit\",\"stat\",\"echo\"]");
+    println!(
+        "builtins_enabled = [\"ls\",\"cat\",\"head\",\"tail\",\"grep\",\"wc\",\"pwd\",\"cd\",\"find\",\"date\",\"id\",\"help\",\"exit\",\"stat\",\"echo\"]"
+    );
     println!("start_dir = {:?}", paths[0]);
     Ok(())
 }

@@ -5,7 +5,7 @@
 //! Builtins are pure functions operating on `(argv, stdin, stdout, ctx)`,
 //! so there is no process spawning anywhere in the pipeline.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashSet;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
@@ -48,6 +48,11 @@ pub fn run(config_path: &str, user_override: Option<&str>) -> Result<()> {
 
     // Hop to the start directory (still allowed, cwd is permitted by
     // landlock because it lives under an allowed_paths_ro entry).
+    // config.validate() has already canonicalized start_dir and verified
+    // it is within an allowed_paths_ro entry, so this chdir should never
+    // fail. Treat failure as fatal: a misconfigured start_dir means the
+    // session would land in an unexpected place, which could violate
+    // policy intent.
     let start_dir = policy.start_dir.clone().unwrap_or_else(|| {
         policy
             .allowed_paths_ro
@@ -55,7 +60,8 @@ pub fn run(config_path: &str, user_override: Option<&str>) -> Result<()> {
             .cloned()
             .unwrap_or_else(|| PathBuf::from("/"))
     });
-    let _ = std::env::set_current_dir(&start_dir);
+    std::env::set_current_dir(&start_dir)
+        .with_context(|| format!("chdir to start_dir {}", start_dir.display()))?;
 
     let mut ctx = Ctx {
         cwd: std::env::current_dir().unwrap_or(start_dir),
@@ -335,10 +341,13 @@ impl<W: Write> Write for SafeWriter<W> {
         // prevents concurrent stages from each reading a remaining value,
         // deciding they can afford their write, and both subtracting —
         // which would underflow the counter.
+        //
+        // SEC-005: `buf.len() as u64` is lossless on all targets skorupka
+        // is built for (Linux x86-64 / aarch64, where usize == u64).
+        // RLIMIT_AS is enforced before the REPL starts, so a single write
+        // larger than usize::MAX is impossible in practice.
         if !budget_spend(&self.budget, buf.len() as u64) {
-            return Err(io::Error::other(
-                "output budget exhausted",
-            ));
+            return Err(io::Error::other("output budget exhausted"));
         }
         // Strip control bytes: walk the buffer writing contiguous safe
         // runs directly and emitting a single '?' for each unsafe byte.
@@ -448,7 +457,10 @@ mod safe_writer_tests {
         let budget = Arc::new(AtomicU64::new(0));
         let mut w = SafeWriter::new(&mut buf, budget);
         let result = w.write_all(b"hello");
-        assert!(result.is_err(), "write through exhausted budget should fail");
+        assert!(
+            result.is_err(),
+            "write through exhausted budget should fail"
+        );
         assert!(buf.is_empty(), "no bytes should have been written");
     }
 

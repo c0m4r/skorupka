@@ -8,7 +8,7 @@
 //! We use raw capget/capset rather than pulling in the `caps` crate, to
 //! keep the dependency tree small.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 const _LINUX_CAPABILITY_VERSION_3: u32 = 0x20080522;
 const PR_CAP_AMBIENT: libc::c_int = 47;

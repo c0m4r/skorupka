@@ -1,6 +1,6 @@
 use super::head::write_bytes;
-use super::Ctx;
-use anyhow::{bail, Context, Result};
+use super::{Ctx, read_line_capped};
+use anyhow::{Context, Result, bail};
 use regex::bytes::RegexBuilder;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -39,6 +39,14 @@ pub fn run(
     } else {
         pat.clone()
     };
+    // SEC-001 / ReDoS: the `regex` crate uses a finite-automaton engine
+    // (NFA/DFA compilation), NOT a backtracking engine. Catastrophic
+    // backtracking (ReDoS) is architecturally impossible — each byte is
+    // processed in amortised O(1) time regardless of the pattern. The
+    // size_limit and dfa_size_limit caps below bound the memory consumed
+    // by DFA state-explosion for pathological patterns (e.g. deeply nested
+    // alternations), so both time and memory are bounded without any need
+    // for a separate execution timeout.
     let re = RegexBuilder::new(&pat_re)
         .case_insensitive(case_insensitive)
         .size_limit(1 << 20)
@@ -52,8 +60,10 @@ pub fn run(
         let mut line = Vec::new();
         let mut r = r;
         loop {
-            line.clear();
-            let n = r.read_until(b'\n', &mut line)?;
+            // SEC-002: capped read prevents unbounded allocation on long lines.
+            // Pass `&mut r` (Box<dyn BufRead>) not `&mut *r` (dyn BufRead):
+            // Box<dyn BufRead> is Sized + BufRead, satisfying the R bound.
+            let n = read_line_capped(&mut r, &mut line)?;
             if n == 0 {
                 break;
             }
@@ -97,9 +107,5 @@ pub fn run(
 
 fn resolve(cwd: &std::path::Path, arg: &str) -> PathBuf {
     let p = PathBuf::from(arg);
-    if p.is_absolute() {
-        p
-    } else {
-        cwd.join(p)
-    }
+    if p.is_absolute() { p } else { cwd.join(p) }
 }

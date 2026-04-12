@@ -19,7 +19,7 @@
 //! Rejecting at the parse layer means no builtin or external will ever
 //! see an argv containing a shell metachar.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pipeline {

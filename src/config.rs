@@ -5,7 +5,7 @@
 //! parsing, the per-user allowed-path set is used to build the landlock
 //! ruleset, which then cannot be widened.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -142,7 +142,9 @@ fn reject_dangerous_root(user: &str, p: &std::path::Path) -> Result<()> {
         if s == *dr || s.starts_with(&format!("{}/", dr)) {
             bail!(
                 "user {}: allowed_paths_ro entry {:?} is inside {} — exposes kernel/device internals",
-                user, p, dr
+                user,
+                p,
+                dr
             );
         }
     }
@@ -163,29 +165,42 @@ impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config {}", path.display()))?;
-        let cfg: Config =
+        let mut cfg: Config =
             toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         cfg.validate()?;
         Ok(cfg)
     }
 
-    pub fn validate(&self) -> Result<()> {
+    /// Validate the config and **replace every stored path with its canonical
+    /// form**.
+    ///
+    /// Security note (Report-3 High / TOCTOU): we used to call
+    /// `canonicalize()` only for validation but then passed the *original*
+    /// symlink path to Landlock's `PathFd::new()`. An attacker who can
+    /// swap the symlink target between the validation check and the
+    /// `PathFd::new()` open could have the kernel open a different inode
+    /// than the one we validated.  Storing the canonical path eliminates
+    /// the race: both the safety check and the Landlock call use the same
+    /// resolved, absolute path with no symlink components.
+    pub fn validate(&mut self) -> Result<()> {
         if self.users.is_empty() {
             bail!("config has no [[user]] entries");
         }
-        for u in &self.users {
-            if u.name.is_empty() {
+        for u in &mut self.users {
+            // Clone name to avoid borrowing `u` while we also mutate its fields.
+            let name = u.name.clone();
+            if name.is_empty() {
                 bail!("user entry with empty name");
             }
-            for p in &u.allowed_paths_ro {
+            for p in &mut u.allowed_paths_ro {
                 if !p.is_absolute() {
                     bail!(
                         "user {}: allowed_paths_ro entry {:?} is not absolute",
-                        u.name,
+                        name,
                         p
                     );
                 }
-                reject_dangerous_root(&u.name, p)?;
+                reject_dangerous_root(&name, p)?;
                 // Require the path to exist AND be resolvable at config-
                 // load time. This catches typos, permissions problems,
                 // and "symlink is still to-be-created" setups where a
@@ -193,14 +208,43 @@ impl Config {
                 let canon = p.canonicalize().map_err(|e| {
                     anyhow!(
                         "user {}: allowed_paths_ro entry {:?} does not resolve: {}",
-                        u.name,
+                        name,
                         p,
                         e
                     )
                 })?;
                 if canon != *p {
-                    reject_dangerous_root(&u.name, &canon)?;
+                    reject_dangerous_root(&name, &canon)?;
                 }
+                // Replace with the canonical form. Landlock's PathFd::new()
+                // will open this path; using the canonical path means no
+                // symlink component can be swapped between now and then.
+                *p = canon;
+            }
+
+            // Validate and canonicalize start_dir if configured.
+            // (Report-3 Low-Med): start_dir was previously unvalidated —
+            // it could point outside the allowed paths.
+            if let Some(sd) = u.start_dir.take() {
+                if !sd.is_absolute() {
+                    bail!("user {}: start_dir {:?} must be an absolute path", name, sd);
+                }
+                let canon_sd = sd.canonicalize().map_err(|e| {
+                    anyhow!("user {}: start_dir {:?} does not resolve: {}", name, sd, e)
+                })?;
+                // start_dir must be reachable under at least one allowed path.
+                let within = u
+                    .allowed_paths_ro
+                    .iter()
+                    .any(|allowed| canon_sd.starts_with(allowed));
+                if !within {
+                    bail!(
+                        "user {}: start_dir {:?} is not within any allowed_paths_ro entry",
+                        name,
+                        canon_sd
+                    );
+                }
+                u.start_dir = Some(canon_sd);
             }
         }
         Ok(())

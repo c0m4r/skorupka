@@ -13,7 +13,7 @@
 //!
 //! Only x86_64 and aarch64 are wired up; other arches refuse to seal.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use seccompiler::{
     BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
     SeccompRule, TargetArch,
@@ -59,13 +59,15 @@ pub fn apply() -> Result<()> {
         | libc::CLONE_NEWPID
         | libc::CLONE_NEWNET
         | libc::CLONE_NEWCGROUP) as u64;
-    let clone_rule = SeccompRule::new(vec![SeccompCondition::new(
-        0,
-        SeccompCmpArgLen::Qword,
-        SeccompCmpOp::MaskedEq(CLONE_NS_MASK),
-        0,
-    )
-    .expect("build clone seccomp condition")])
+    let clone_rule = SeccompRule::new(vec![
+        SeccompCondition::new(
+            0,
+            SeccompCmpArgLen::Qword,
+            SeccompCmpOp::MaskedEq(CLONE_NS_MASK),
+            0,
+        )
+        .expect("build clone seccomp condition"),
+    ])
     .expect("build clone seccomp rule");
     rules.insert(libc::SYS_clone, vec![clone_rule]);
 
@@ -92,13 +94,15 @@ pub fn apply() -> Result<()> {
     let ioctl_rules: Vec<SeccompRule> = ioctl_allowed_cmds
         .iter()
         .map(|&cmd| {
-            SeccompRule::new(vec![SeccompCondition::new(
-                IOCTL_CMD_ARG,
-                SeccompCmpArgLen::Dword,
-                SeccompCmpOp::Eq,
-                cmd,
-            )
-            .expect("build ioctl seccomp condition")])
+            SeccompRule::new(vec![
+                SeccompCondition::new(
+                    IOCTL_CMD_ARG,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::Eq,
+                    cmd,
+                )
+                .expect("build ioctl seccomp condition"),
+            ])
             .expect("build ioctl seccomp rule")
         })
         .collect();

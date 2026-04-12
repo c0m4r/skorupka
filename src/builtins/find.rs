@@ -2,7 +2,7 @@
 //! name substring. No `-exec`, no `-delete`, no `-print0` shenanigans.
 
 use super::Ctx;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -121,9 +121,5 @@ fn walk(
 
 fn resolve(cwd: &Path, arg: &str) -> PathBuf {
     let p = PathBuf::from(arg);
-    if p.is_absolute() {
-        p
-    } else {
-        cwd.join(p)
-    }
+    if p.is_absolute() { p } else { cwd.join(p) }
 }

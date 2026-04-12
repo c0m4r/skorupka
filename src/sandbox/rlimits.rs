@@ -4,7 +4,7 @@
 //! info leaks, and (with RLIMIT_FSIZE=0) unintended writes.
 
 use crate::config::Limits;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 fn setrl(resource: libc::__rlimit_resource_t, soft: u64, hard: u64) -> Result<()> {
     let rl = libc::rlimit {

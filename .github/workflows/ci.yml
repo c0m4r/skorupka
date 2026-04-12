@@ -60,6 +60,10 @@ jobs:
         # and so the binary is available as an artefact below.
         run: cargo build --release
 
+      # ── runtime support self-check ──────────────────────────────────────
+      - name: Selfcheck
+        run: ./target/release/skorupka check
+
       # ── runtime security self-check ─────────────────────────────────────
       - name: Selftest (in-process escape-attempt suite)
         # Seals the sandbox (landlock + seccomp + NO_NEW_PRIVS) inside the

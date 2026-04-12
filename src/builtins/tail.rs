@@ -1,6 +1,6 @@
 use super::head::write_bytes;
-use super::Ctx;
-use anyhow::{bail, Context, Result};
+use super::{Ctx, read_line_capped};
+use anyhow::{Context, Result, bail};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
@@ -17,8 +17,7 @@ pub fn run(
     } else {
         for f in files {
             let p = resolve(&ctx.cwd, &f);
-            let fh = std::fs::File::open(&p)
-                .with_context(|| format!("tail: {}", p.display()))?;
+            let fh = std::fs::File::open(&p).with_context(|| format!("tail: {}", p.display()))?;
             tail_reader(BufReader::new(fh), stdout, n)?;
         }
     }
@@ -32,7 +31,9 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "-n" => {
-                let v = it.next().ok_or_else(|| anyhow::anyhow!("tail: -n needs value"))?;
+                let v = it
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("tail: -n needs value"))?;
                 n = v.parse().context("tail: -n value")?;
             }
             s if s.starts_with("-") => {
@@ -51,16 +52,17 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
 
 fn tail_reader<R: BufRead>(mut r: R, w: &mut dyn Write, n: usize) -> Result<()> {
     let mut ring: VecDeque<Vec<u8>> = VecDeque::with_capacity(n.min(4096));
+    let mut line = Vec::new();
     loop {
-        let mut line = Vec::new();
-        let got = r.read_until(b'\n', &mut line)?;
+        // SEC-002: capped read prevents unbounded allocation on long lines.
+        let got = read_line_capped(&mut r, &mut line)?;
         if got == 0 {
             break;
         }
         if ring.len() == n {
             ring.pop_front();
         }
-        ring.push_back(line);
+        ring.push_back(line.clone());
     }
     for line in &ring {
         write_bytes(w, line)?;
@@ -70,9 +72,5 @@ fn tail_reader<R: BufRead>(mut r: R, w: &mut dyn Write, n: usize) -> Result<()> 
 
 fn resolve(cwd: &std::path::Path, arg: &str) -> PathBuf {
     let p = PathBuf::from(arg);
-    if p.is_absolute() {
-        p
-    } else {
-        cwd.join(p)
-    }
+    if p.is_absolute() { p } else { cwd.join(p) }
 }

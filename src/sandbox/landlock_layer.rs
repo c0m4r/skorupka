@@ -33,10 +33,10 @@
 //! there is no writable directory in which to land the link. The missing
 //! `refer` control is therefore inert in this configuration.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use landlock::{
-    Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus,
-    ABI,
+    ABI, Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
+    RulesetStatus,
 };
 
 pub fn apply(allowed_ro: &[std::path::PathBuf]) -> Result<()> {

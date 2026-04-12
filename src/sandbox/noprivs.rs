@@ -3,7 +3,7 @@
 //! Must be applied before seccomp (seccomp requires NNP unless you have
 //! CAP_SYS_ADMIN, which we drop immediately after).
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 pub fn set_no_new_privs() -> Result<()> {
     // SAFETY: pure prctl call, no memory touched.

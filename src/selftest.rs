@@ -6,11 +6,21 @@
 
 use crate::config::{Limits, UserPolicy};
 use crate::sandbox;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::path::PathBuf;
 
 pub fn run() -> Result<()> {
-    println!("skorupka selftest");
+    let color = unsafe { libc::isatty(libc::STDOUT_FILENO) } == 1;
+    let (green, red, bold, reset) = if color {
+        ("\x1b[32m", "\x1b[31m", "\x1b[1m", "\x1b[0m")
+    } else {
+        ("", "", "", "")
+    };
+
+    let ok_tag   = format!("{green}[ok]  {reset}");
+    let fail_tag = format!("{red}[FAIL]{reset}");
+
+    println!("{bold}skorupka selftest{reset}");
     println!("-----------------");
 
     // Build a policy that permits only /tmp (always exists).
@@ -44,15 +54,15 @@ pub fn run() -> Result<()> {
     sandbox::seal(&policy, &limits)?;
     println!("sealed.");
 
-    let mut pass = 0;
-    let mut fail = 0;
+    let mut pass = 0u32;
+    let mut fail = 0u32;
     let mut run = |name: &str, f: &dyn Fn() -> Result<()>| match f() {
         Ok(()) => {
-            println!("  [ok]   {}", name);
+            println!("  {ok_tag} {name}");
             pass += 1;
         }
         Err(e) => {
-            println!("  [FAIL] {}: {}", name, e);
+            println!("  {fail_tag} {name}: {e}");
             fail += 1;
         }
     };
@@ -280,8 +290,10 @@ pub fn run() -> Result<()> {
     );
 
     println!();
-    println!("result: {} passed, {} failed", pass, fail);
-    if fail > 0 {
+    if fail == 0 {
+        println!("{green}result: {pass} passed, 0 failed{reset}");
+    } else {
+        println!("{red}result: {pass} passed, {fail} failed{reset}");
         bail!("selftest FAILED");
     }
     Ok(())

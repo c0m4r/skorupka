@@ -8,9 +8,56 @@
 //! and no child processes to escape into.
 
 use anyhow::Result;
-use std::io::{Read, Write};
-use std::sync::atomic::AtomicU64;
+use std::io::{BufRead, Read, Write};
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+
+/// Hard per-line size cap used by all `read_until`-based builtins.
+///
+/// A single line longer than 1 MiB is almost certainly a binary file
+/// being fed through a text builtin, or adversarial input attempting to
+/// force unbounded heap allocation. We truncate the line rather than
+/// allocating without limit.
+pub(crate) const MAX_LINE_BYTES: usize = 1 << 20; // 1 MiB
+
+/// Read one newline-terminated line from `r`, capped at [`MAX_LINE_BYTES`].
+///
+/// Semantics mirror `BufRead::read_until(b'\n', buf)`:
+/// - `buf` is cleared on entry.
+/// - Returns `Ok(0)` only at EOF.
+/// - Otherwise returns `Ok(n)` where `n > 0` and `buf` contains the line
+///   (possibly without a trailing `\n` if EOF was hit mid-line).
+///
+/// If the underlying line is longer than `MAX_LINE_BYTES`, the excess bytes
+/// up to and including the next `\n` are consumed and discarded so the
+/// next call starts at a fresh line boundary.
+pub(crate) fn read_line_capped<R: BufRead>(r: &mut R, buf: &mut Vec<u8>) -> std::io::Result<usize> {
+    buf.clear();
+    // `Take` makes the reader look like it ends after MAX_LINE_BYTES bytes,
+    // so `read_until` cannot grow `buf` beyond that regardless of line length.
+    let n = r
+        .by_ref()
+        .take(MAX_LINE_BYTES as u64)
+        .read_until(b'\n', buf)?;
+    if n == 0 {
+        return Ok(0);
+    }
+    // If we stopped at the cap without finding a newline, drain the rest of
+    // this line from the underlying reader so the next call starts cleanly.
+    if !buf.ends_with(b"\n") {
+        let mut discard = [0u8; 4096];
+        loop {
+            let got = r.read(&mut discard)?;
+            if got == 0 {
+                break; // EOF
+            }
+            if discard[..got].contains(&b'\n') {
+                break; // consumed through the newline
+            }
+        }
+    }
+    Ok(n)
+}
 
 pub mod cat;
 pub mod cd;
