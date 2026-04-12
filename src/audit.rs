@@ -17,5 +17,19 @@ pub fn init(user: &str) {
 
 pub fn event(kind: &str, detail: &str) {
     let user = USER.get().map(String::as_str).unwrap_or("?");
-    tracing::info!(target: "skorupka::audit", user, kind, detail, "audit");
+    let sanitized = sanitize_log(detail);
+    tracing::info!(target: "skorupka::audit", user, kind, detail = %sanitized, "audit");
+}
+
+/// Sanitize a string for safe log output.
+///
+/// Truncates to 512 characters and replaces anything that is not a
+/// printable ASCII graphic character or a space with '?'. This prevents
+/// log injection attacks where crafted input could confuse downstream
+/// log aggregators that parse structured formats (syslog, JSON lines).
+fn sanitize_log(s: &str) -> String {
+    s.chars()
+        .take(512)
+        .map(|c| if c.is_ascii_graphic() || c == ' ' { c } else { '?' })
+        .collect()
 }

@@ -1,6 +1,6 @@
-#!/bin//bash
+#!/bin/bash
 
-set -e
+set -euo pipefail
 
 cargo install cargo-audit --locked
 cargo clippy --release --all-targets

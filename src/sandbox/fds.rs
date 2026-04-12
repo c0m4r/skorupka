@@ -72,31 +72,52 @@ pub fn hygiene() -> Result<()> {
 }
 
 fn close_other_fds(keep: &[RawFd]) -> Result<()> {
-    let dir = match std::fs::read_dir("/proc/self/fd") {
-        Ok(d) => d,
-        Err(_) => {
-            // Fallback: loop to a sane ceiling.
-            for fd in 3..1024 {
-                if !keep.contains(&fd) {
-                    // SAFETY: close on a small fd; errors ignored.
-                    unsafe { libc::close(fd) };
-                }
+    // Use raw opendir/readdir so we can identify and skip the directory
+    // fd itself. std::fs::ReadDir would close its internal fd when
+    // dropped, and then our close loop would close the same number
+    // again — a double-close that is UB even though it's currently
+    // benign (single-threaded at this point).
+    //
+    // SAFETY: opendir returns a valid DIR* or null. We check for null.
+    let dir = unsafe { libc::opendir(c"/proc/self/fd".as_ptr()) };
+    if dir.is_null() {
+        // Fallback: brute-force close to a sane ceiling.
+        for fd in 3..1024 {
+            if !keep.contains(&fd) {
+                // SAFETY: close on a small fd; errors ignored.
+                unsafe { libc::close(fd) };
             }
-            return Ok(());
         }
-    };
+        return Ok(());
+    }
+    // dirfd() returns the fd backing the DIR stream — we must not close
+    // it manually; closedir() will do that.
+    // SAFETY: dir is a valid, non-null DIR* from opendir above.
+    let dir_fd = unsafe { libc::dirfd(dir) };
+
     let mut victims = Vec::new();
-    for ent in dir.flatten() {
-        if let Some(name) = ent.file_name().to_str() {
-            if let Ok(fd) = name.parse::<RawFd>() {
-                if !keep.contains(&fd) {
+    loop {
+        // SAFETY: readdir returns a pointer to an internal dirent or null.
+        let ent = unsafe { libc::readdir(dir) };
+        if ent.is_null() {
+            break;
+        }
+        // SAFETY: d_name is a null-terminated C string.
+        let name = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) };
+        if let Ok(s) = name.to_str() {
+            if let Ok(fd) = s.parse::<RawFd>() {
+                if fd != dir_fd && !keep.contains(&fd) {
                     victims.push(fd);
                 }
             }
         }
     }
+    // SAFETY: closedir frees the DIR and closes dir_fd exactly once.
+    unsafe { libc::closedir(dir) };
+
     for fd in victims {
-        // SAFETY: fd came from /proc/self/fd; close is safe either way.
+        // SAFETY: fd came from /proc/self/fd and is not the now-closed
+        // dir_fd; close is safe.
         unsafe { libc::close(fd) };
     }
     Ok(())

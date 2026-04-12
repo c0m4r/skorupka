@@ -24,8 +24,14 @@ pub fn run(
     Ok(())
 }
 
+/// Maximum number of lines tail will buffer. Prevents pathological
+/// values from causing unbounded ring-buffer growth that could exhaust
+/// RLIMIT_AS (each buffered line can be up to 1 MiB from
+/// `read_line_capped`).
+const MAX_N: usize = 100_000;
+
 fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
-    let mut n = 10;
+    let mut n = 10usize;
     let mut files = Vec::new();
     let mut it = argv.iter().skip(1);
     while let Some(a) = it.next() {
@@ -46,6 +52,9 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
             }
             s => files.push(s.to_string()),
         }
+    }
+    if n > MAX_N {
+        bail!("tail: -n value {} exceeds maximum ({})", n, MAX_N);
     }
     Ok((n, files))
 }

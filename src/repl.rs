@@ -29,7 +29,14 @@ pub fn run(config_path: &str, user_override: Option<&str>) -> Result<()> {
     let cfg = SkConfig::load(&cfg_path).context("load config")?;
 
     let username = match user_override {
-        Some(u) => u.to_string(),
+        Some(u) => {
+            // --user requires root to prevent an unprivileged attacker
+            // from selecting a more permissive policy by name.
+            if !nix::unistd::Uid::current().is_root() {
+                bail!("--user requires root (prevents policy impersonation)");
+            }
+            u.to_string()
+        }
         None => current_username()?,
     };
     let policy = cfg

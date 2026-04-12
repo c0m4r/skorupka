@@ -156,6 +156,34 @@ pub fn check() -> Result<()> {
         }
     }
 
+    // --- Unprivileged user namespaces (clone3 mitigation) -----------------
+    // clone3 passes its flags in a userspace struct that seccomp-bpf cannot
+    // dereference, so we cannot filter namespace-creation flags on clone3.
+    // The best deployment mitigation is to disable unprivileged user
+    // namespaces at the kernel level.
+    let userns_path = Path::new("/proc/sys/kernel/unprivileged_userns_clone");
+    match std::fs::read_to_string(userns_path) {
+        Ok(val) => {
+            if val.trim() == "0" {
+                println!("  {ok_tag} userns:        unprivileged user namespaces disabled");
+            } else {
+                println!("  {warn_tag} userns:        unprivileged user namespaces enabled");
+                println!("         fix:   sysctl kernel.unprivileged_userns_clone=0");
+                println!("         note:  clone3 flags cannot be filtered by seccomp-bpf;");
+                println!("                disabling unprivileged userns closes this gap.");
+                warnings += 1;
+            }
+        }
+        Err(_) => {
+            // Sysctl may not exist on all kernels (some use AppArmor userns
+            // restrictions instead, e.g. Ubuntu 24.04+).
+            println!("  {warn_tag} userns:        /proc/sys/kernel/unprivileged_userns_clone not found");
+            println!("         note:  if your kernel allows unprivileged user namespaces,");
+            println!("                consider restricting them via sysctl or AppArmor.");
+            warnings += 1;
+        }
+    }
+
     // --- Config file ------------------------------------------------------
     let config_path = Path::new("/etc/skorupka/config.toml");
     if config_path.exists() {

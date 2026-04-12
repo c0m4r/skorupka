@@ -48,6 +48,10 @@ pub fn apply(l: &Limits) -> Result<()> {
         l.rlimit_fsize_mb * 1024 * 1024,
     )?;
     setrl(libc::RLIMIT_NOFILE, l.rlimit_nofile, l.rlimit_nofile)?;
+    // 2 MiB per-thread stack limit. Pipeline stages each get a thread;
+    // without this cap the default 8 MiB × NPROC threads could consume
+    // a large portion of RLIMIT_AS for stack alone.
+    setrl(libc::RLIMIT_STACK, 2 * 1024 * 1024, 2 * 1024 * 1024)?;
     // No core dumps at all — they can leak file contents.
     setrl(libc::RLIMIT_CORE, 0, 0)?;
     Ok(())

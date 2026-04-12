@@ -108,6 +108,59 @@ pub fn apply() -> Result<()> {
         .collect();
     rules.insert(libc::SYS_ioctl, ioctl_rules);
 
+    // prctl: only allow the specific operations that glibc and Rust
+    // runtime actually need. In particular, PR_SET_DUMPABLE (4) is
+    // excluded — re-enabling core dumps could leak process memory,
+    // and dumpable=1 also gates /proc/self/mem readability by
+    // same-uid processes. PR_SET_PDEATHSIG is excluded because it
+    // provides a timing oracle for session close events.
+    const PRCTL_OP_ARG: u8 = 0;
+    let prctl_allowed_ops: &[u64] = &[
+        libc::PR_SET_NAME as u64,      // 15 — thread naming (Rust std)
+        libc::PR_GET_NAME as u64,      // 16 — thread name read
+        libc::PR_GET_DUMPABLE as u64,  // 3  — glibc probe (read-only)
+        libc::PR_CAPBSET_READ as u64,  // 23 — capability bounding set read
+        libc::PR_GET_SECCOMP as u64,   // 21 — seccomp mode check
+        libc::PR_SET_KEEPCAPS as u64,  // 8  — glibc
+        libc::PR_GET_KEEPCAPS as u64,  // 7  — glibc
+        0x53564d41,                     // PR_SET_VMA — musl anonymous mmap naming
+    ];
+    let prctl_rules: Vec<SeccompRule> = prctl_allowed_ops
+        .iter()
+        .map(|&op| {
+            SeccompRule::new(vec![
+                SeccompCondition::new(
+                    PRCTL_OP_ARG,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::Eq,
+                    op,
+                )
+                .expect("build prctl seccomp condition"),
+            ])
+            .expect("build prctl seccomp rule")
+        })
+        .collect();
+    rules.insert(libc::SYS_prctl, prctl_rules);
+
+    // kill: block negative pid values which broadcast to process groups
+    // or all processes, preventing cross-session signal injection.
+    //   pid >= 0 (as signed 32-bit): allowed
+    //     0 = own process group, positive = specific process
+    //   pid < 0 (as signed 32-bit): denied
+    //     -1 = all processes, -N = process group N
+    // In unsigned 32-bit representation, non-negative values are < 0x80000000.
+    let kill_rule = SeccompRule::new(vec![
+        SeccompCondition::new(
+            0,                       // arg 0 = pid
+            SeccompCmpArgLen::Dword, // pid_t is 32-bit
+            SeccompCmpOp::Lt,
+            0x80000000,              // unsigned < 0x80000000 ↔ non-negative signed
+        )
+        .expect("build kill seccomp condition"),
+    ])
+    .expect("build kill seccomp rule");
+    rules.insert(libc::SYS_kill, vec![kill_rule]);
+
     let filter = SeccompFilter::new(
         rules,
         // Default action for anything NOT in the allowlist.
@@ -260,14 +313,15 @@ fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_nanosleep,
         libc::SYS_gettimeofday,
         // --- misc runtime plumbing ---
-        // prctl: glibc/rust probe PR_GET_DUMPABLE etc. We already set
-        //   PR_SET_NO_NEW_PRIVS before seccomp seals, so allowing prctl
-        //   post-seal cannot be used to disable that bit.
-        libc::SYS_prctl,
+        // prctl: NOT added here — installed separately below with an
+        //   explicit op allowlist. PR_SET_DUMPABLE and other dangerous
+        //   operations are excluded.
+        // kill: NOT added here — installed separately below with an
+        //   arg filter that blocks negative-pid broadcasts (which would
+        //   target all processes owned by the same uid).
         libc::SYS_set_tid_address,
         libc::SYS_tgkill,
         libc::SYS_tkill,
-        libc::SYS_kill,
         libc::SYS_rt_sigtimedwait,
         libc::SYS_rt_sigsuspend,
         libc::SYS_signalfd4,

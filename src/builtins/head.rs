@@ -22,8 +22,14 @@ pub fn run(
     Ok(())
 }
 
+/// Maximum number of lines head will emit. Prevents pathological
+/// values like `head -n 18446744073709551615` from spinning the
+/// builtin indefinitely (output budget would eventually stop writes,
+/// but bounding the loop count is cleaner).
+const MAX_N: usize = 100_000;
+
 fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
-    let mut n = 10;
+    let mut n = 10usize;
     let mut files = Vec::new();
     let mut it = argv.iter().skip(1);
     while let Some(a) = it.next() {
@@ -44,6 +50,9 @@ fn parse_args(argv: &[String]) -> Result<(usize, Vec<String>)> {
             }
             s => files.push(s.to_string()),
         }
+    }
+    if n > MAX_N {
+        bail!("head: -n value {} exceeds maximum ({})", n, MAX_N);
     }
     Ok((n, files))
 }

@@ -3,6 +3,11 @@
 
 use super::Ctx;
 use anyhow::{Result, bail};
+
+/// Hard cap on the number of results emitted. Prevents unbounded queue
+/// growth when walking a very deep or wide directory tree, which could
+/// exhaust RLIMIT_AS before the output budget stops writes.
+const MAX_RESULTS: usize = 100_000;
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -77,8 +82,13 @@ fn walk(
     _ctx: &mut Ctx,
 ) -> Result<()> {
     let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
+    let mut emitted: usize = 0;
     queue.push_back((path.to_path_buf(), depth));
     while let Some((p, d)) = queue.pop_front() {
+        if emitted >= MAX_RESULTS {
+            writeln!(out, "find: result limit ({}) reached", MAX_RESULTS)?;
+            break;
+        }
         let md = match std::fs::symlink_metadata(&p) {
             Ok(m) => m,
             Err(_) => continue,
@@ -102,6 +112,7 @@ fn walk(
         if matches_name && matches_type {
             let line = format!("{}\n", p.display());
             super::head::write_bytes(out, line.as_bytes())?;
+            emitted += 1;
         }
         if ft.is_dir() {
             if let Some(md2) = max_depth {

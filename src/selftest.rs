@@ -262,6 +262,72 @@ pub fn run() -> Result<()> {
         }
     });
 
+    run(
+        "prctl(PR_SET_DUMPABLE) is blocked by seccomp arg filter",
+        &|| {
+            // PR_SET_DUMPABLE is excluded from the prctl allowlist.
+            // Re-enabling dumpable could leak process memory via core
+            // dumps or /proc/self/mem readability.
+            let rc = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 1, 0, 0, 0) };
+            if rc == 0 {
+                bail!("prctl(PR_SET_DUMPABLE) unexpectedly succeeded")
+            }
+            let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            if err != libc::ENOSYS {
+                bail!(
+                    "prctl(PR_SET_DUMPABLE) errno={} (expected ENOSYS={})",
+                    err,
+                    libc::ENOSYS
+                )
+            }
+            Ok(())
+        },
+    );
+
+    run(
+        "kill(-1, 0) broadcast is blocked by seccomp arg filter",
+        &|| {
+            // kill(-1, sig) sends to all processes owned by the user.
+            // The seccomp filter blocks negative pid values to prevent
+            // cross-session signal injection.
+            let rc = unsafe { libc::kill(-1, 0) };
+            if rc == 0 {
+                bail!("kill(-1, 0) unexpectedly succeeded")
+            }
+            let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            if err != libc::ENOSYS {
+                bail!(
+                    "kill(-1, 0) errno={} (expected ENOSYS={})",
+                    err,
+                    libc::ENOSYS
+                )
+            }
+            Ok(())
+        },
+    );
+
+    #[cfg(target_arch = "x86_64")]
+    run(
+        "legacy open(2) of /etc/shadow denied by landlock",
+        &|| {
+            // The x86_64 seccomp allowlist includes the legacy SYS_open
+            // for glibc compat. Verify that Landlock covers this path
+            // too, not just the modern openat(2).
+            let rc = unsafe {
+                libc::syscall(
+                    libc::SYS_open,
+                    c"/etc/shadow".as_ptr(),
+                    libc::O_RDONLY,
+                )
+            };
+            if rc >= 0 {
+                unsafe { libc::close(rc as i32) };
+                bail!("legacy open(2) unexpectedly opened /etc/shadow")
+            }
+            Ok(())
+        },
+    );
+
     run("TIOCSTI ioctl is blocked by seccomp", &|| {
         // TIOCSTI pushes a byte into the controlling tty's input queue.
         // Our seccomp ioctl cmd allowlist excludes it; the call must

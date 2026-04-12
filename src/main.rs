@@ -19,13 +19,6 @@ mod repl;
 mod sandbox;
 mod selftest;
 
-/// The only `-c` argument value sshd is allowed to pass us. sshd wraps
-/// ForceCommand as `shell -c '<ForceCommand>'`, so if we set ForceCommand
-/// to exactly this sentinel, any other `-c` invocation (sftp-server,
-/// scp backend, user-supplied remote command) is detectable as non-sshd
-/// and rejected with an audit event.
-const FORCECOMMAND_SENTINEL: &str = "/usr/local/bin/skorupka run";
-
 #[derive(Parser)]
 #[command(name = "skorupka", version, about = "Hardened SSH sandbox shell")]
 struct Cli {
@@ -66,11 +59,12 @@ enum Cmd {
 }
 
 fn main() -> Result<()> {
+    // Hardcode the log filter — never read RUST_LOG from the environment.
+    // A sandbox user who controls environment variables (e.g. via
+    // PermitUserEnvironment or SendEnv) could set RUST_LOG=off to
+    // suppress all audit events for their session.
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "skorupka=info".into()),
-        )
+        .with_env_filter("skorupka=info")
         .with_writer(std::io::stderr)
         .init();
 
@@ -84,15 +78,15 @@ fn main() -> Result<()> {
         bail!("skorupka: -c and subcommand are mutually exclusive");
     }
 
-    // `-c` handler. Only the ForceCommand sentinel is honored; everything
-    // else gets an audit event and exits non-zero. We accept the sentinel
-    // whether or not it has the leading slash or the trailing `run`, to
-    // tolerate operators who install skorupka in /usr/bin vs /usr/local/bin.
+    // `-c` handler. Only the exact ForceCommand sentinel paths are honored;
+    // everything else gets an audit event and exits non-zero. The allowlist
+    // is explicit rather than `ends_with` to prevent prefix-junk bypass.
     if let Some(c) = cli.command.as_deref() {
         let trimmed = c.trim();
-        let ok = trimmed == FORCECOMMAND_SENTINEL
-            || trimmed == "skorupka run"
-            || trimmed.ends_with("/skorupka run");
+        let ok = matches!(
+            trimmed,
+            "/usr/local/bin/skorupka run" | "/usr/bin/skorupka run" | "skorupka run"
+        );
         if !ok {
             // No audit::init yet (pre-REPL), so we log via tracing directly.
             // Stderr goes to sshd's session log.

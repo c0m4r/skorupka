@@ -154,7 +154,7 @@ fn reject_dangerous_root(user: &str, p: &std::path::Path) -> Result<()> {
 fn default_builtins() -> Vec<String> {
     [
         "help", "exit", "pwd", "cd", "ls", "cat", "echo", "head", "tail", "wc", "grep", "find",
-        "date", "id", "whoami", "stat", "pager",
+        "date", "id", "whoami", "stat",
     ]
     .into_iter()
     .map(String::from)

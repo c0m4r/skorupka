@@ -49,6 +49,7 @@ Match Group skorupka
     PermitTunnel no
     PermitUserRC no
     GatewayPorts no
+    PermitUserEnvironment no
 # --- END skorupka sandbox ---
 "#;
 
@@ -68,7 +69,10 @@ pub fn install() -> Result<()> {
         fs::write(&cfg_file, DEFAULT_CONFIG)
             .with_context(|| format!("write {}", cfg_file.display()))?;
         // Config is world-readable but not writable.
-        set_mode(&cfg_file, 0o644)?;
+        // 0o640: readable by root and the skorupka group, but not by
+        // other users — prevents information disclosure of per-user
+        // allowed-path lists.
+        set_mode(&cfg_file, 0o640)?;
         println!("wrote {}", cfg_file.display());
     }
 

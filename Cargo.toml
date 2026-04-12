@@ -1,6 +1,6 @@
 [package]
 name = "skorupka"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 rust-version = "1.85.0"
 description = "Hardened SSH sandbox shell (landlock + seccomp, read-only, no execve)"
@@ -22,7 +22,6 @@ libc = "=0.2.184"
 nix = { version = "=0.31.2", features = ["fs", "user", "resource", "process", "signal", "term", "ioctl"] }
 os_pipe = "=1.2.3"
 regex = "=1.12.3"
-rustyline = { version = "=18.0.0", default-features = false, features = ["with-file-history"] }
 seccompiler = "=0.5.0"
 serde = { version = "=1.0.228", features = ["derive"] }
 toml = "=1.1.2"
